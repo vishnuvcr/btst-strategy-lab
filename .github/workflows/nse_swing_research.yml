@@ -34,7 +34,29 @@ jobs:
           pytest -q
 
       - name: Download NSE-wide daily data
-        run: python scripts/download_swing_data.py
+        run: |
+          rm -rf data/nse_all_daily
+          python scripts/download_swing_data.py
+
+      - name: Validate downloaded NSE data
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import pandas as pd
+          files=list(Path('data/nse_all_daily').rglob('*.csv'))
+          assert files, 'No NSE CSV files were created'
+          symbols=[]
+          rows=0
+          for p in files[:100]:
+              df=pd.read_csv(p, nrows=5)
+              cols={str(c).strip().lower() for c in df.columns}
+              required={'date','open','high','low','close','volume','symbol'}
+              assert required.issubset(cols), f'{p} missing required columns: {sorted(required-cols)}'
+              rows += len(df)
+              symbols.append(p.stem)
+          print(f'CSV files: {len(files)}; sampled files: {min(len(files),100)}; sampled rows: {rows}')
+          assert len(files) >= 100, f'Unexpectedly small NSE dataset: {len(files)} files'
+          PY
 
       - name: Run NSE-wide swing tournament
         run: python src/swing_tournament.py --config config/swing.yaml
