@@ -17,7 +17,17 @@ def trade_return_sanity(trades: pd.DataFrame) -> dict:
     w = pd.to_numeric(trades["weight"], errors="coerce")
     wr = pd.to_numeric(trades["weighted_return"], errors="coerce")
     finite = bool(np.isfinite(r).all() and np.isfinite(w).all() and np.isfinite(wr).all())
-    daily = wr.groupby(trades["signal_date"]).sum()
+
+    # oos_trades.csv contains several strategies. Portfolio gross exposure must
+    # therefore be checked within strategy/date, not by summing every strategy
+    # into one fictional portfolio. If a single strategy is supplied, this
+    # reduces to the ordinary signal-date exposure check.
+    group_cols = ["signal_date"]
+    if "strategy" in trades.columns:
+        group_cols.insert(0, "strategy")
+    daily_weight = w.groupby([trades[c] for c in group_cols]).sum()
+    daily = wr.groupby([trades[c] for c in group_cols]).sum()
+    combined_daily = wr.groupby(trades["signal_date"]).sum()
     return {
         "trades": int(len(trades)),
         "finite_returns": finite,
@@ -27,7 +37,8 @@ def trade_return_sanity(trades: pd.DataFrame) -> dict:
         "median_return": float(r.median()),
         "max_abs_weight": float(w.abs().max()),
         "max_abs_weighted_return": float(wr.abs().max()),
-        "max_gross_weight": float(w.groupby(trades["signal_date"]).sum().max()),
+        "max_gross_weight": float(daily_weight.max()),
+        "max_combined_gross_weight_across_strategies": float(combined_daily.max()),
         "min_daily_return": float(daily.min()),
         "max_daily_return": float(daily.max()),
         "pct_daily_below_minus_5pct": float((daily < -0.05).mean()),
@@ -38,7 +49,10 @@ def trade_return_sanity(trades: pd.DataFrame) -> dict:
 def equal_weight_buy_and_hold(df: pd.DataFrame) -> dict:
     """Equal-weight daily universe benchmark using close-to-close returns.
 
-    This is a universe benchmark, not an investable NIFTY index replacement.
+    This is a diagnostic universe benchmark, not a NIFTY index replacement.
+    The source stock files are not adjusted-price data, so extreme corporate
+    action/data errors can make a compounded benchmark meaningless. In that
+    case the result is retained for diagnosis but explicitly marked invalid.
     """
     required = {"date", "symbol", "close"}
     missing = sorted(required - set(df.columns))
@@ -48,16 +62,25 @@ def equal_weight_buy_and_hold(df: pd.DataFrame) -> dict:
     x["ret"] = x.groupby("symbol")["close"].pct_change()
     daily = x.groupby("date")["ret"].mean().dropna().sort_index()
     if daily.empty:
-        return {"days": 0, "total_return": 0.0, "mean_daily_return": 0.0}
+        return {"days": 0, "total_return": 0.0, "mean_daily_return": 0.0, "valid": False}
+
+    extreme_fraction = float((daily.abs() > 0.50).mean())
+    valid = bool(extreme_fraction == 0.0 and abs(float(daily.mean())) < 0.10)
     equity = (1.0 + daily).cumprod()
-    return {
+    result = {
         "days": int(len(daily)),
         "date_start": str(pd.to_datetime(daily.index.min()).date()),
         "date_end": str(pd.to_datetime(daily.index.max()).date()),
-        "total_return": float(equity.iloc[-1] - 1.0),
+        "total_return": float(equity.iloc[-1] - 1.0) if valid else None,
         "mean_daily_return": float(daily.mean()),
         "median_daily_return": float(daily.median()),
+        "max_abs_daily_return": float(daily.abs().max()),
+        "extreme_daily_return_fraction": extreme_fraction,
+        "valid": valid,
     }
+    if not valid:
+        result["warning"] = "Close-to-close universe benchmark is not trusted because the raw stock data contain extreme daily returns; adjusted prices or constituent-aware data are required for a valid buy-and-hold benchmark."
+    return result
 
 
 def random_entry_benchmark(df: pd.DataFrame, top_n: int, repeats: int = 100, seed: int = 42) -> dict:
@@ -73,13 +96,11 @@ def random_entry_benchmark(df: pd.DataFrame, top_n: int, repeats: int = 100, see
         raise ValueError(f"Missing random benchmark columns: {missing}")
     x = df[["date", "symbol", "next_open", "next_close"]].dropna().copy()
     x["next_return"] = x["next_close"] / x["next_open"] - 1.0
-    # Materialize per-date return arrays once. Re-filtering the complete universe
-    # inside every Monte-Carlo repetition is prohibitively expensive at scale.
     groups = [g["next_return"].to_numpy(dtype=float) for _, g in x.groupby("date", sort=True)]
     rng = np.random.default_rng(seed)
     totals = np.empty(int(repeats), dtype=float)
     valid = 0
-    for rep in range(int(repeats)):
+    for _ in range(int(repeats)):
         log_growth = 0.0
         used = 0
         for returns in groups:
