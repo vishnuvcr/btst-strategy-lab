@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import get_context
@@ -15,9 +14,6 @@ from swing_tournament import load, features, simulate, stat
 
 COMPONENTS = ("mr5", "mr20", "sma20", "loc", "volume", "relative")
 
-# The worker globals are populated once in the parent and inherited by forked
-# workers on the Linux GitHub runner. This avoids serializing the full NSE-wide
-# dataframe for every task.
 _WORKER_D = None
 _WORKER_CFG = None
 _WORKER_DATES = None
@@ -101,7 +97,6 @@ def tune_fold(d, history, val_dates, test_dates, horizon, cfg):
     val = d[d.date.isin(val_dates)].dropna(subset=["entry_open", "future_close", "atr"]).copy()
     test = d[d.date.isin(test_dates)].dropna(subset=["entry_open", "atr"]).copy()
     ranked = sorted(((validation_proxy(val, p), p) for p in candidate_grid()), key=lambda z: z[0], reverse=True)
-    # Exact simulation is expensive; evaluate only the best 5 validation candidates, then apply the winner to untouched OOS.
     best = None
     for _, p in ranked[:5]:
         v = val.copy(); v["score"] = score_candidate(v, p)
@@ -125,6 +120,9 @@ def _run_horizon_worker(horizon: int):
     d = _WORKER_D
     cfg = _WORKER_CFG
     dates = _WORKER_DATES
+    # Each forked worker selects the correct forward label for its horizon.
+    # This assignment is isolated to the worker's copy-on-write dataframe.
+    d["future_close"] = d[f"future_close_{horizon}"]
     all_rows, all_trades = [], []
     for fold, (va, te) in enumerate(fold_ranges(dates, cfg), 1):
         t, p = tune_fold(d, d, va, te, horizon, cfg)
@@ -146,7 +144,6 @@ def run(cfg):
     # memory rather than independently recomputing the expensive groupby shifts.
     for h in horizons:
         d[f"future_close_{h}"] = d.groupby("symbol").close.shift(-h)
-    d["future_close"] = d["future_close_5"]
 
     _WORKER_D = d
     _WORKER_CFG = cfg
@@ -156,8 +153,6 @@ def run(cfg):
     print(f"Parallel selective optimization: {workers} workers across horizons {horizons}")
 
     all_rows, all_trades = [], []
-    # GitHub's ubuntu-latest runner is Linux; fork lets workers inherit the
-    # already-loaded dataframe without a multi-GB pickle/IPC transfer.
     if workers > 1 and os.name == "posix":
         ctx = get_context("fork")
         with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as ex:
