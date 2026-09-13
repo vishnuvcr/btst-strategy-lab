@@ -13,6 +13,9 @@ concurrency:
   group: btst-research
   cancel-in-progress: true
 
+# Artifact publishing uses fetch/rebase/retry so concurrent main-branch updates do not
+# invalidate a completed research run with a non-fast-forward push failure.
+
 jobs:
   research:
     runs-on: ubuntu-latest
