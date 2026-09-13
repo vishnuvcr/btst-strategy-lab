@@ -1,6 +1,6 @@
 {
   "engine": "research_v2",
-  "symbols_tested": 49,
+  "symbols_tested": 50,
   "date_start": "2015-01-01",
   "date_end": "2026-08-31",
   "strategies_tested": [
@@ -15,9 +15,19 @@
     "hybrid"
   ],
   "min_oos_trades": 30,
+  "eligibility_gate": {
+    "min_oos_trades": 30,
+    "min_parameter_stability": 0.34,
+    "requires_positive_expectancy": true,
+    "requires_profit_factor_gt_1": true,
+    "requires_positive_sharpe": true,
+    "requires_positive_oos_return": true,
+    "rejects_max_drawdown_at_or_below_50pct": true
+  },
   "universe_warning": "Dataset universe may be survivorship-biased unless historical constituents are supplied.",
   "execution_warning": "Daily OHLC cannot determine intraday stop/target ordering; stop-first is used conservatively.",
   "sector_warning": "sector_relative is not truly sector-mapped unless a sector mapping is added.",
+  "walk_forward_warning": "Overlapping test windows are retained for parameter stability, but combined OOS trades are deduplicated by signal_date and symbol using the latest fold.",
   "diagnostics": {
     "momentum": {
       "folds": 14,
@@ -26,86 +36,72 @@
         {
           "top_n": 5,
           "min_score": 0.6,
-          "validation_score": -3.264931013073222,
-          "validation_trades": 1177
+          "score": -3.264931013073222
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -2.789544779595105,
-          "validation_trades": 1185
+          "score": -2.789544779595105
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -2.1630631893537093,
-          "validation_trades": 1215
+          "score": -2.1630631893537093
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -1.402962000131718,
-          "validation_trades": 1210
+          "score": -1.402962000131718
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -2.5971275562733345,
-          "validation_trades": 1200
+          "score": -2.5971275562733345
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.1305734512744814,
-          "validation_trades": 1200
+          "score": -3.1305734512744814
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -2.960177679916858,
-          "validation_trades": 1200
+          "score": -2.960177679916858
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.890231160470951,
-          "validation_trades": 1195
+          "score": -3.890231160470951
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -5.4530665701925685,
-          "validation_trades": 1200
+          "score": -5.4530665701925685
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -4.466609196045749,
-          "validation_trades": 1210
+          "score": -4.466609196045749
         },
         {
           "top_n": 15,
           "min_score": 0.7,
-          "validation_score": -3.5812375538665004,
-          "validation_trades": 2782
+          "score": -3.5812375538665004
         },
         {
           "top_n": 5,
           "min_score": 0.6,
-          "validation_score": -3.89550336028023,
-          "validation_trades": 1240
+          "score": -3.89550336028023
         },
         {
           "top_n": 5,
           "min_score": 0.6,
-          "validation_score": -3.6735918248812696,
-          "validation_trades": 1235
+          "score": -3.6735918248812696
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.9938401537364046,
-          "validation_trades": 1225
+          "score": -3.9434207003327537
         }
       ]
     },
@@ -116,86 +112,72 @@
         {
           "top_n": 5,
           "min_score": 0.6,
-          "validation_score": -2.616976363343065,
-          "validation_trades": 1175
+          "score": -2.616976363343065
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -1.8234797461894077,
-          "validation_trades": 1185
+          "score": -1.8234797461894077
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -1.967883701065975,
-          "validation_trades": 1215
+          "score": -1.967883701065975
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.2473569986813833,
-          "validation_trades": 1210
+          "score": -3.2473569986813833
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.509864733975093,
-          "validation_trades": 1200
+          "score": -3.509864733975093
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.478879376967664,
-          "validation_trades": 1200
+          "score": -3.478879376967664
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.241259189368342,
-          "validation_trades": 1200
+          "score": -3.241259189368342
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.1225357330341112,
-          "validation_trades": 1195
+          "score": -3.1225357330341112
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.5052697613976895,
-          "validation_trades": 1200
+          "score": -3.5052697613976895
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.5036113144912644,
-          "validation_trades": 1210
+          "score": -3.5036113144912644
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.3126928098271375,
-          "validation_trades": 1235
+          "score": -3.3126928098271375
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.306498021005578,
-          "validation_trades": 1241
+          "score": -3.306498021005578
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.083202620112176,
-          "validation_trades": 1236
+          "score": -3.083202620112176
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.2612798997028976,
-          "validation_trades": 1225
+          "score": -3.3641071728790606
         }
       ]
     },
@@ -206,86 +188,72 @@
         {
           "top_n": 5,
           "min_score": 0.7,
-          "validation_score": -3.125450340336315,
-          "validation_trades": 1177
+          "score": -3.125450340336315
         },
         {
           "top_n": 10,
           "min_score": 0.55,
-          "validation_score": -2.2243947680131515,
-          "validation_trades": 2370
+          "score": -2.2243947680131515
         },
         {
           "top_n": 10,
           "min_score": 0.55,
-          "validation_score": -2.150657630563198,
-          "validation_trades": 2430
+          "score": -2.150657630563198
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -2.340760979508476,
-          "validation_trades": 1210
+          "score": -2.340760979508476
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.109833426033677,
-          "validation_trades": 1200
+          "score": -3.109833426033677
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.4710209096549303,
-          "validation_trades": 1200
+          "score": -3.4710209096549303
         },
         {
           "top_n": 15,
           "min_score": 0.65,
-          "validation_score": -3.4035825747440476,
-          "validation_trades": 3590
+          "score": -3.4035825747440476
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.553573320370087,
-          "validation_trades": 1195
+          "score": -3.553573320370087
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -4.021712236623857,
-          "validation_trades": 1200
+          "score": -4.021712236623857
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -4.347580527036094,
-          "validation_trades": 1210
+          "score": -4.347580527036094
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -4.07690280275975,
-          "validation_trades": 1235
+          "score": -4.07690280275975
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.6333948380745027,
-          "validation_trades": 1242
+          "score": -3.6333948380745027
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.668545472159924,
-          "validation_trades": 1237
+          "score": -3.668545472159924
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -4.757664049569762,
-          "validation_trades": 1225
+          "score": -4.754292286918413
         }
       ]
     },
@@ -296,86 +264,72 @@
         {
           "top_n": 5,
           "min_score": 0.7,
-          "validation_score": -2.8582333404497073,
-          "validation_trades": 1171
+          "score": -2.8582333404497073
         },
         {
           "top_n": 10,
           "min_score": 0.65,
-          "validation_score": -2.7745950169594877,
-          "validation_trades": 2301
+          "score": -2.7745950169594877
         },
         {
           "top_n": 5,
           "min_score": 0.7,
-          "validation_score": -2.237596399807947,
-          "validation_trades": 1214
+          "score": -2.237596399807947
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -2.2718531323492073,
-          "validation_trades": 1210
+          "score": -2.2718531323492073
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.50616809225197,
-          "validation_trades": 1200
+          "score": -3.50616809225197
         },
         {
           "top_n": 15,
           "min_score": 0.7,
-          "validation_score": -3.4578449396012583,
-          "validation_trades": 2195
+          "score": -3.4578449396012583
         },
         {
           "top_n": 15,
           "min_score": 0.7,
-          "validation_score": -3.2092857716171515,
-          "validation_trades": 2104
+          "score": -3.2092857716171515
         },
         {
           "top_n": 5,
           "min_score": 0.7,
-          "validation_score": -3.9003639776798376,
-          "validation_trades": 1191
+          "score": -3.9003639776798376
         },
         {
           "top_n": 5,
           "min_score": 0.7,
-          "validation_score": -5.073830858608671,
-          "validation_trades": 1197
+          "score": -5.073830858608671
         },
         {
           "top_n": 5,
           "min_score": 0.7,
-          "validation_score": -4.403994233138025,
-          "validation_trades": 1206
+          "score": -4.403994233138025
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.8024762934109595,
-          "validation_trades": 1235
+          "score": -3.8024762934109595
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.88841571004626,
-          "validation_trades": 1242
+          "score": -3.88841571004626
         },
         {
           "top_n": 15,
           "min_score": 0.65,
-          "validation_score": -4.089563540668529,
-          "validation_trades": 2780
+          "score": -4.089563540668529
         },
         {
           "top_n": 15,
           "min_score": 0.55,
-          "validation_score": -4.253766407192867,
-          "validation_trades": 3671
+          "score": -4.2876730633825195
         }
       ]
     },
@@ -386,86 +340,72 @@
         {
           "top_n": 5,
           "min_score": 0.6,
-          "validation_score": -3.256751559690743,
-          "validation_trades": 1177
+          "score": -3.256751559690743
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -1.9209522485384236,
-          "validation_trades": 1185
+          "score": -1.9209522485384236
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -2.0813749236557646,
-          "validation_trades": 1215
+          "score": -2.0813749236557646
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -2.0763233510816743,
-          "validation_trades": 1210
+          "score": -2.0763233510816743
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -2.8213246571397494,
-          "validation_trades": 1200
+          "score": -2.8213246571397494
         },
         {
           "top_n": 15,
           "min_score": 0.55,
-          "validation_score": -3.762091115848132,
-          "validation_trades": 3600
+          "score": -3.762091115848132
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.2250665465544324,
-          "validation_trades": 1200
+          "score": -3.2250665465544324
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.013661562635893,
-          "validation_trades": 1195
+          "score": -3.013661562635893
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.8687899237539933,
-          "validation_trades": 1200
+          "score": -3.8687899237539933
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -4.216544546045762,
-          "validation_trades": 1210
+          "score": -4.216544546045762
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.649545503325869,
-          "validation_trades": 1235
+          "score": -3.649545503325869
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.1573325650728727,
-          "validation_trades": 1242
+          "score": -3.1573325650728727
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.406795952831187,
-          "validation_trades": 1237
+          "score": -3.406795952831187
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -4.72337849096742,
-          "validation_trades": 1225
+          "score": -4.677317806495923
         }
       ]
     },
@@ -476,86 +416,72 @@
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.8961781573816863,
-          "validation_trades": 642
+          "score": -3.8961781573816863
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.273417215362503,
-          "validation_trades": 570
+          "score": -3.273417215362503
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -1.6706984318765024,
-          "validation_trades": 665
+          "score": -1.6706984318765024
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -1.4151022755395504,
-          "validation_trades": 750
+          "score": -1.4151022755395504
         },
         {
           "top_n": 10,
           "min_score": 0.55,
-          "validation_score": -3.171699801027873,
-          "validation_trades": 1560
+          "score": -3.171699801027873
         },
         {
           "top_n": 10,
           "min_score": 0.55,
-          "validation_score": -4.145096715903145,
-          "validation_trades": 1380
+          "score": -4.145096715903145
         },
         {
           "top_n": 10,
           "min_score": 0.55,
-          "validation_score": -3.75541183739127,
-          "validation_trades": 1320
+          "score": -3.75541183739127
         },
         {
           "top_n": 10,
           "min_score": 0.55,
-          "validation_score": -4.063603966458397,
-          "validation_trades": 1420
+          "score": -4.063603966458397
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -5.729414670602058,
-          "validation_trades": 665
+          "score": -5.729414670602058
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -4.117853648179254,
-          "validation_trades": 750
+          "score": -4.117853648179254
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.749185766349833,
-          "validation_trades": 795
+          "score": -3.749185766349833
         },
         {
           "top_n": 5,
           "min_score": 0.7,
-          "validation_score": -3.9240724949534718,
-          "validation_trades": 686
+          "score": -3.9240724949534718
         },
         {
           "top_n": 5,
           "min_score": 0.7,
-          "validation_score": -3.7364105771741323,
-          "validation_trades": 651
+          "score": -3.7364105771741323
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.8677662200704828,
-          "validation_trades": 605
+          "score": -3.9648124172120283
         }
       ]
     },
@@ -566,86 +492,72 @@
         {
           "top_n": 5,
           "min_score": 0.7,
-          "validation_score": -3.2612362073385315,
-          "validation_trades": 1191
+          "score": -3.2612362073385315
         },
         {
           "top_n": 5,
           "min_score": 0.7,
-          "validation_score": -2.6499681628745986,
-          "validation_trades": 1199
+          "score": -2.6499681628745986
         },
         {
           "top_n": 5,
           "min_score": 0.7,
-          "validation_score": -1.9682176513056173,
-          "validation_trades": 1223
+          "score": -1.9682176513056173
         },
         {
           "top_n": 10,
           "min_score": 0.7,
-          "validation_score": -1.3649727712733746,
-          "validation_trades": 2421
+          "score": -1.3649727712733746
         },
         {
           "top_n": 15,
           "min_score": 0.7,
-          "validation_score": -2.518087787490948,
-          "validation_trades": 3042
+          "score": -2.518087787490948
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.126854247937885,
-          "validation_trades": 1211
+          "score": -3.126854247937885
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -2.9232595167307522,
-          "validation_trades": 1211
+          "score": -2.9232595167307522
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -4.060592427870437,
-          "validation_trades": 1208
+          "score": -4.060592427870437
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -5.30859515556833,
-          "validation_trades": 1212
+          "score": -5.30859515556833
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.7968254085352706,
-          "validation_trades": 1219
+          "score": -3.7968254085352706
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.3154130022531847,
-          "validation_trades": 1239
+          "score": -3.3154130022531847
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.5833395407199298,
-          "validation_trades": 1247
+          "score": -3.5833395407199298
         },
         {
           "top_n": 5,
           "min_score": 0.55,
-          "validation_score": -3.4656864393362503,
-          "validation_trades": 1243
+          "score": -3.4656864393362503
         },
         {
           "top_n": 10,
           "min_score": 0.7,
-          "validation_score": -3.4101910619142277,
-          "validation_trades": 2458
+          "score": -3.360934999209038
         }
       ]
     },

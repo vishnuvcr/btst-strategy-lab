@@ -4,8 +4,8 @@
     "usable_files": 99,
     "rows": 276840,
     "symbols": 50,
-    "min_date": "None",
-    "max_date": "None",
+    "min_date": "2015-01-01 00:00:00+00:00",
+    "max_date": "2026-09-01 00:00:00+00:00",
     "problems": [
       "missing OHLC: data/daily/data/all_50_stocks_status.csv",
       "missing OHLC: data/daily/data/historical_10yr/10yr_data_summary.csv",
