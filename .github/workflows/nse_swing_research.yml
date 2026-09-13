@@ -6,6 +6,10 @@ on:
     branches:
       - nse-swing-research
 
+concurrency:
+  group: nse-swing-research-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
