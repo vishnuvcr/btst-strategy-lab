@@ -1,13 +1,26 @@
 from __future__ import annotations
 
-import argparse, json, math
+import argparse
+import json
+import math
+import os
+from concurrent.futures import ProcessPoolExecutor
+from multiprocessing import get_context
 from pathlib import Path
+
 import pandas as pd
 import yaml
 
 from swing_tournament import load, features, simulate, stat
 
 COMPONENTS = ("mr5", "mr20", "sma20", "loc", "volume", "relative")
+
+# The worker globals are populated once in the parent and inherited by forked
+# workers on the Linux GitHub runner. This avoids serializing the full NSE-wide
+# dataframe for every task.
+_WORKER_D = None
+_WORKER_CFG = None
+_WORKER_DATES = None
 
 
 def component_frame(d: pd.DataFrame) -> pd.DataFrame:
@@ -107,20 +120,56 @@ def tune_fold(d, history, val_dates, test_dates, horizon, cfg):
     return simulate(picks, history, cfg, horizon), p
 
 
+def _run_horizon_worker(horizon: int):
+    """Run one complete nested walk-forward horizon in an isolated process."""
+    d = _WORKER_D
+    cfg = _WORKER_CFG
+    dates = _WORKER_DATES
+    all_rows, all_trades = [], []
+    for fold, (va, te) in enumerate(fold_ranges(dates, cfg), 1):
+        t, p = tune_fold(d, d, va, te, horizon, cfg)
+        if t.empty or p is None:
+            continue
+        all_trades.append(t.assign(horizon=horizon, fold=fold))
+        all_rows.append({"horizon_days": horizon, "fold": fold, **stat(t), "params": json.dumps(p, sort_keys=True)})
+    return horizon, all_rows, all_trades
+
+
 def run(cfg):
+    global _WORKER_D, _WORKER_CFG, _WORKER_DATES
+
     d = component_frame(features(load(cfg)))
     d["entry_open"] = d.groupby("symbol").open.shift(-1)
+
+    horizons = (5, 10, 20)
+    # Materialize all labels before forking so child processes only read shared
+    # memory rather than independently recomputing the expensive groupby shifts.
+    for h in horizons:
+        d[f"future_close_{h}"] = d.groupby("symbol").close.shift(-h)
+    d["future_close"] = d["future_close_5"]
+
+    _WORKER_D = d
+    _WORKER_CFG = cfg
+    _WORKER_DATES = sorted(d.date.unique())
+
+    workers = min(len(horizons), max(1, (os.cpu_count() or 2) - 1))
+    print(f"Parallel selective optimization: {workers} workers across horizons {horizons}")
+
     all_rows, all_trades = [], []
-    dates = sorted(d.date.unique())
-    candidates = candidate_grid()
-    for h in (5, 10, 20):
-        d["future_close"] = d.groupby("symbol").close.shift(-h)
-        for fold, (va, te) in enumerate(fold_ranges(dates, cfg), 1):
-            t, p = tune_fold(d, d, va, te, h, cfg)
-            if t.empty or p is None:
-                continue
-            all_trades.append(t.assign(horizon=h, fold=fold))
-            all_rows.append({"horizon_days": h, "fold": fold, **stat(t), "params": json.dumps(p, sort_keys=True)})
+    # GitHub's ubuntu-latest runner is Linux; fork lets workers inherit the
+    # already-loaded dataframe without a multi-GB pickle/IPC transfer.
+    if workers > 1 and os.name == "posix":
+        ctx = get_context("fork")
+        with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as ex:
+            for h, rows, trades in ex.map(_run_horizon_worker, horizons):
+                all_rows.extend(rows)
+                all_trades.extend(trades)
+    else:
+        for h in horizons:
+            _, rows, trades = _run_horizon_worker(h)
+            all_rows.extend(rows)
+            all_trades.extend(trades)
+
     trades = pd.concat(all_trades, ignore_index=True) if all_trades else pd.DataFrame()
     fold_df = pd.DataFrame(all_rows)
     if fold_df.empty:
@@ -131,24 +180,26 @@ def run(cfg):
     summary = pd.DataFrame(rows).sort_values(["sharpe", "expectancy"], ascending=False)
     Path("docs").mkdir(exist_ok=True)
     summary.to_csv("docs/selective_oos_summary.csv", index=False)
-    fold_df.to_csv("docs/selective_fold_parameters.csv", index=False)
-    trades.to_csv("docs/selective_oos_trades.csv", index=False)
+    fold_df.sort_values(["horizon_days", "fold"]).to_csv("docs/selective_fold_parameters.csv", index=False)
+    trades.sort_values(["horizon", "date", "symbol"]).to_csv("docs/selective_oos_trades.csv", index=False)
     manifest = {
-        "engine": "nse_daily_swing_selective_v2",
+        "engine": "nse_daily_swing_selective_v3_parallel_horizons",
         "tuning": "nested validation-to-OOS",
-        "horizons": [5, 10, 20],
-        "candidate_count": len(candidates),
+        "horizons": list(horizons),
+        "candidate_count": len(candidate_grid()),
         "exact_simulation_finalists_per_fold": 5,
+        "parallel_horizon_workers": workers,
         "selection_objective": "Sharpe + profit factor + win rate + expectancy + return - drawdown penalty",
         "survivorship_warning": True,
         "point_in_time_membership": False,
     }
     json.dump(manifest, open("docs/selective_research_manifest.json", "w", encoding="utf-8"), indent=2)
     print(summary.to_string(index=False))
-    print("Candidates per fold:", len(candidates), "exact finalists:", 5)
+    print("Candidates per fold:", len(candidate_grid()), "exact finalists:", 5)
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(); ap.add_argument("--config", default="config/swing.yaml")
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--config", default="config/swing.yaml")
     args = ap.parse_args()
     run(yaml.safe_load(open(args.config, encoding="utf-8")))
