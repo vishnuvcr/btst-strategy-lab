@@ -53,6 +53,9 @@ jobs:
       - name: Audit data
         run: python scripts/audit_data.py
 
+      - name: Corporate action audit
+        run: python src/corporate_action_audit.py
+
       - name: Validate data audit schema
         run: |
           python - <<'PY'
@@ -67,15 +70,18 @@ jobs:
               q = section['quality_checks']
               required = {'duplicate_date_rows', 'invalid_ohlc_rows', 'extreme_close_return_rows_gt_50pct', 'extreme_return_symbols', 'zero_or_negative_volume_rows', 'volume_rows'}
               assert required.issubset(q), f'Incomplete {name} quality diagnostics'
-          # The daily NIFTY-50 stock universe is the trading-data gate and must have
-          # valid OHLC rows. The market dataset intentionally contains many index,
-          # volatility, bond and other instruments whose OHLC/volume conventions
-          # differ; report those diagnostics but do not reject the run globally.
           assert audit['daily']['quality_checks']['invalid_ohlc_rows'] == 0, (
               'Invalid OHLC rows detected in daily stock data: '
               f"{audit['daily']['quality_checks']['invalid_ohlc_rows']}"
           )
+          ca = Path('docs/corporate_action_audit.json')
+          assert ca.is_file() and ca.stat().st_size > 0, 'Missing corporate action audit'
+          with ca.open(encoding='utf-8') as f:
+              corporate = json.load(f)
+          assert corporate.get('usable_files', 0) > 0, 'No usable files in corporate action audit'
+          assert 'results' in corporate, 'Corporate action audit results missing'
           print(json.dumps(audit, indent=2))
+          print(json.dumps({k: v for k, v in corporate.items() if k != 'results'}, indent=2))
           PY
 
       - name: Run leakage-safe strategy tournament
@@ -97,6 +103,7 @@ jobs:
               'docs/research_manifest.json',
               'docs/forensic_audit.json',
               'docs/data_audit.json',
+              'docs/corporate_action_audit.json',
           ]
           for p in required:
               assert Path(p).is_file() and Path(p).stat().st_size > 0, f'Missing/empty artifact: {p}'
@@ -132,6 +139,7 @@ jobs:
             docs/research_manifest.json
             docs/forensic_audit.json
             docs/data_audit.json
+            docs/corporate_action_audit.json
 
       - name: Commit research artifacts
         run: |
