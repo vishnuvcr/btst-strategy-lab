@@ -1,21 +1,26 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pandas as pd
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from src.core_btst import add_features, prepare_entries, read_market_files
 from src.forensics import equal_weight_buy_and_hold, random_entry_benchmark, trade_return_sanity
 
 
 if __name__ == '__main__':
-    trades_path = Path('docs/oos_trades.csv')
+    trades_path = ROOT / 'docs/oos_trades.csv'
     assert trades_path.is_file() and trades_path.stat().st_size > 0, 'Missing OOS trades'
     trades = pd.read_csv(trades_path)
     sanity = trade_return_sanity(trades)
 
-    daily = read_market_files('data/daily/**/*.csv')
+    daily = read_market_files(str(ROOT / 'data/daily/**/*.csv'))
     daily = prepare_entries(add_features(daily))
     oos_dates = pd.to_datetime(trades['signal_date']).dt.normalize().unique()
     universe = daily[daily['date'].isin(oos_dates)].copy()
@@ -42,7 +47,8 @@ if __name__ == '__main__':
             'Daily OHLC cannot resolve stop/target ordering; strategy trade diagnostics therefore remain subject to the engine stop-first convention.',
         ],
     }
-    Path('docs').mkdir(exist_ok=True)
-    with open('docs/forensic_audit.json', 'w', encoding='utf-8') as f:
+    docs = ROOT / 'docs'
+    docs.mkdir(exist_ok=True)
+    with open(docs / 'forensic_audit.json', 'w', encoding='utf-8') as f:
         json.dump(result, f, indent=2, default=str)
     print(json.dumps(result, indent=2, default=str))
