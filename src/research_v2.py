@@ -41,6 +41,12 @@ def fold_dates(dates, train_days: int, val_days: int, test_days: int, step_days:
         start += step_days
 
 
+def _safe_validation_dates(val_dates) -> list:
+    """Exclude the final validation date because its next-session outcome lies outside validation."""
+    dates = list(val_dates)
+    return dates[:-1] if len(dates) > 1 else []
+
+
 def rule_score(val_trades: pd.DataFrame) -> float:
     if val_trades.empty:
         return -1e9
@@ -56,7 +62,8 @@ def rule_score(val_trades: pd.DataFrame) -> float:
 def tune_rule(x: pd.DataFrame, family: str, cfg: dict, val_dates) -> dict:
     top_candidates = [5, 10, 15]
     score_candidates = [0.55, 0.60, 0.65, 0.70]
-    val = x[x.date.isin(val_dates)].copy()
+    safe_val_dates = _safe_validation_dates(val_dates)
+    val = x[x.date.isin(safe_val_dates)].copy()
     val["score"] = strategy_scores(val, family)
     best = None
     for top_n in top_candidates:
@@ -127,7 +134,8 @@ def run_ml_family(df: pd.DataFrame, family: str, cfg: dict) -> tuple[pd.DataFram
     embargo = int(r.get("embargo_days", 1))
     for train_dates, val_dates, test_dates in fold_dates(dates, train_days, val_days, test_days, step_days, embargo):
         train = work[work.date.isin(train_dates)]
-        val = work[work.date.isin(val_dates)]
+        safe_val_dates = _safe_validation_dates(val_dates)
+        val = work[work.date.isin(safe_val_dates)]
         test = work[work.date.isin(test_dates)].copy()
         if len(train) < int(r.get("min_train_observations", 2000)) or val.empty or test.empty:
             continue
