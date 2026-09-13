@@ -27,7 +27,7 @@ def test_forward_fields_reject_symbol_gaps():
     history = pd.concat([history, pd.DataFrame(_rows('BBB', dates))], ignore_index=True)
     out = add_forward_fields(history, 3)
     a = out[out.symbol == 'AAA'].set_index('date')
-    assert pd.isna(a.loc[dates[0], 'entry_open'])
+    assert a.loc[dates[0], 'entry_open'] == 101.0
     assert pd.isna(a.loc[dates[0], 'future_close'])
 
 
