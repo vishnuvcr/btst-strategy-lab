@@ -1,0 +1,64 @@
+data:
+  timezone: Asia/Kolkata
+  daily_glob: data/daily/**/*.csv
+  intraday_glob: data/intraday/**/*.csv
+  market_glob: data/market/**/*.csv
+  min_history_days: 252
+  min_price: 20
+  min_turnover_inr: 10000000
+  max_symbols: 200
+  kaggle:
+    nifty50_daily: siddharthhirvaniya/nifty-50-stocks-data-01-jan-2015-to-01-sept-2026
+    nifty100_5m: debashis74017/stock-market-data-nifty-100-stocks-5-min-data
+    nifty_indices_minute: debashis74017/nifty-50-minute-data
+
+research:
+  entry_cutoff: close
+  exit: next_session_close
+  train_years: 4
+  validation_months: 12
+  test_months: 12
+  step_months: 6
+  embargo_days: 1
+  min_train_observations: 2000
+  min_trades_oos: 30
+  random_state: 42
+
+costs:
+  slippage_bps_per_side: 5.0
+  transaction_cost_bps_per_side: 8.0
+
+portfolio:
+  initial_capital: 1000000
+  max_positions: 10
+  risk_per_trade: 0.005
+  max_gross_exposure: 0.95
+  max_participation_pct_adv: 5.0
+  sector_cap: 0.30
+
+strategy_search:
+  families:
+    - momentum
+    - mean_reversion
+    - closing_strength
+    - volume
+    - gap
+    - regime
+    - sector_relative
+    - ml_ranker
+    - hybrid
+  score_weights:
+    sharpe: 0.30
+    profit_factor: 0.20
+    expectancy: 0.15
+    max_drawdown: 0.15
+    stability: 0.20
+  parameter_stability_required: true
+
+execution:
+  stop_mode: ATR
+  stop_atr_mult: 1.5
+  stop_pct: 2.0
+  target_mode: ATR
+  target_atr_mult: 2.0
+  target_pct: 5.0
