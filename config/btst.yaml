@@ -18,7 +18,10 @@ research:
   train_years: 4
   validation_months: 12
   test_months: 12
-  step_months: 6
+  # Non-overlapping OOS windows: a 12-month test window advances by 12 months.
+  # This avoids requiring downstream deduplication to turn overlapping folds into
+  # a single OOS equity curve.
+  step_months: 12
   embargo_days: 1
   min_train_observations: 2000
   min_trades_oos: 30
