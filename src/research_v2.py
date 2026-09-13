@@ -187,6 +187,27 @@ def composite(r) -> float:
     )
 
 
+def eligibility(result, trades: pd.DataFrame, diag: dict, min_oos: int, min_stability: float = 0.34) -> tuple[bool, list[str]]:
+    """Hard gate: eligibility means evidence is positive, not merely sufficiently numerous."""
+    reasons = []
+    stable = max(float(diag.get("parameter_stability", diag.get("threshold_stability", 0.0))), 0.0)
+    if len(trades) < min_oos:
+        reasons.append(f"oos_trades<{min_oos}")
+    if stable < min_stability:
+        reasons.append(f"stability<{min_stability:.2f}")
+    if result.expectancy <= 0:
+        reasons.append("non_positive_expectancy")
+    if not np.isfinite(result.profit_factor) or result.profit_factor <= 1:
+        reasons.append("profit_factor<=1")
+    if result.sharpe <= 0:
+        reasons.append("non_positive_sharpe")
+    if result.total_return <= 0:
+        reasons.append("non_positive_oos_return")
+    if result.max_drawdown <= -0.50:
+        reasons.append("max_drawdown<=-50pct")
+    return not reasons, reasons
+
+
 def run(config_path: str) -> Dict[str, object]:
     cfg = load_config(config_path)
     max_symbols = int(cfg["data"].get("max_symbols", 200))
@@ -219,8 +240,8 @@ def run(config_path: str) -> Dict[str, object]:
         result = metrics(trades, family, float(cfg["portfolio"]["initial_capital"]))
         score = composite(result)
         stable = max(float(diag.get("parameter_stability", diag.get("threshold_stability", 0.0))), 0.0)
-        eligible = len(trades) >= min_oos and stable >= 0.34
-        rows.append({**result.__dict__, "score": score, "eligible": eligible, "folds": diag.get("folds", 0), "parameter_stability": stable})
+        eligible, rejection_reasons = eligibility(result, trades, diag, min_oos)
+        rows.append({**result.__dict__, "score": score, "eligible": eligible, "eligibility_reasons": ";".join(rejection_reasons), "folds": diag.get("folds", 0), "parameter_stability": stable})
         trades["strategy"] = family
         all_trades.append(trades)
 
@@ -238,6 +259,15 @@ def run(config_path: str) -> Dict[str, object]:
         "date_end": str(pd.to_datetime(daily.date.max()).date()),
         "strategies_tested": list(families),
         "min_oos_trades": min_oos,
+        "eligibility_gate": {
+            "min_oos_trades": min_oos,
+            "min_parameter_stability": 0.34,
+            "requires_positive_expectancy": True,
+            "requires_profit_factor_gt_1": True,
+            "requires_positive_sharpe": True,
+            "requires_positive_oos_return": True,
+            "rejects_max_drawdown_at_or_below_50pct": True,
+        },
         "universe_warning": "Dataset universe may be survivorship-biased unless historical constituents are supplied.",
         "execution_warning": "Daily OHLC cannot determine intraday stop/target ordering; stop-first is used conservatively.",
         "sector_warning": "sector_relative is not truly sector-mapped unless a sector mapping is added.",
