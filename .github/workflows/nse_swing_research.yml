@@ -219,17 +219,7 @@ jobs:
           summary.to_csv(docs/'selective_oos_summary.csv',index=False)
           fold.to_csv(docs/'selective_fold_parameters.csv',index=False)
           trade.to_csv(docs/'selective_oos_trades.csv',index=False)
-          manifest={
-              'engine':'nse_daily_swing_selective_v4_distributed_horizons',
-              'tuning':'nested validation-to-OOS',
-              'horizons':list(horizons),
-              'candidate_count':100,
-              'exact_simulation_finalists_per_fold':5,
-              'distributed_horizon_jobs':3,
-              'selection_objective':'Sharpe + profit factor + win rate + expectancy + return - drawdown penalty',
-              'survivorship_warning':True,
-              'point_in_time_membership':False,
-          }
+          manifest={'engine':'nse_daily_swing_selective_v4_distributed_horizons','tuning':'nested validation-to-OOS','horizons':list(horizons),'candidate_count':100,'exact_simulation_finalists_per_fold':5,'distributed_horizon_jobs':3,'selection_objective':'Sharpe + profit factor + win rate + expectancy + return - drawdown penalty','survivorship_warning':True,'point_in_time_membership':False}
           json.dump(manifest,open(docs/'selective_research_manifest.json','w',encoding='utf-8'),indent=2)
           print(summary.to_string(index=False))
           print(json.dumps(manifest,indent=2))
@@ -246,3 +236,56 @@ jobs:
             docs/selective_fold_parameters.csv
             docs/selective_oos_trades.csv
             docs/selective_research_manifest.json
+
+  robustness:
+    needs: [aggregate, prepare-data]
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Download shared NSE data
+        uses: actions/download-artifact@v4
+        with:
+          name: nse-daily-data
+          path: data/nse_all_daily
+      - name: Download combined research artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: nse-swing-results
+          path: docs
+      - name: Run robustness battery
+        run: python src/robustness_battery.py --config config/swing.yaml --summary-dir docs
+      - name: Validate robustness artifacts
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          for p in ['docs/swing_robustness_battery.csv','docs/swing_robustness_summary.csv','docs/swing_robustness_manifest.json']:
+              assert Path(p).is_file() and Path(p).stat().st_size > 0, p
+          df=pd.read_csv('docs/swing_robustness_battery.csv')
+          assert set(df.horizon_days.dropna().astype(int)) == {10,20}
+          assert df.profit_factor.notna().all()
+          m=json.load(open('docs/swing_robustness_manifest.json',encoding='utf-8'))
+          assert m['point_in_time_membership'] is False
+          print(df.groupby(['horizon_days','analysis'],dropna=False).size().to_string())
+          print(pd.read_csv('docs/swing_robustness_summary.csv').to_string(index=False))
+          PY
+      - name: Upload robustness artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: swing-robustness
+          path: |
+            docs/swing_robustness_battery.csv
+            docs/swing_robustness_summary.csv
+            docs/swing_robustness_manifest.json
