@@ -3,7 +3,8 @@ import pandas as pd
 
 from src.btst_lab import add_features, add_cross_sectional_features, prepare_entries, select_top, strategy_scores
 from src.core_btst import read_market_files, simulate_trades, metrics
-from src.research_v2 import eligibility
+from src.forensics import trade_return_sanity
+from src.research_v2 import eligibility, _deduplicate_oos_trades
 
 
 def _sample_frame(periods=80):
@@ -115,6 +116,34 @@ def test_portfolio_weighting_is_bounded_by_max_gross():
     assert np.isclose(trades.groupby('signal_date')['weight'].sum().max(), 0.95)
     assert np.isclose(trades.groupby('signal_date')['weighted_return'].sum().max(), 0.95 * 0.005)
     assert np.isfinite(total)
+
+
+def test_overlapping_walk_forward_trades_are_deduplicated_and_reweighted():
+    dates = pd.date_range('2025-01-01', periods=3, freq='B')
+    trades = pd.DataFrame([
+        {'signal_date': dates[0], 'symbol': 'AAA', 'return': 0.01, 'weighted_return': 0.0095, 'weight': 0.95, 'fold': 1},
+        {'signal_date': dates[0], 'symbol': 'AAA', 'return': 0.02, 'weighted_return': 0.019, 'weight': 0.95, 'fold': 2},
+        {'signal_date': dates[0], 'symbol': 'BBB', 'return': 0.01, 'weighted_return': 0.0095, 'weight': 0.95, 'fold': 2},
+        {'signal_date': dates[1], 'symbol': 'AAA', 'return': 0.01, 'weighted_return': 0.0095, 'weight': 0.95, 'fold': 2},
+    ])
+    out = _deduplicate_oos_trades(trades, _cfg())
+    assert len(out) == 3
+    assert out.loc[(out.signal_date == dates[0]) & (out.symbol == 'AAA'), 'return'].iloc[0] == 0.02
+    assert np.isclose(out.groupby('signal_date').weight.sum().max(), 0.95)
+    assert np.isclose(out.groupby('signal_date').weighted_return.sum().max(), 0.95 * 0.015)
+
+
+def test_forensic_gross_exposure_is_checked_per_strategy():
+    trades = pd.DataFrame({
+        'strategy': ['momentum', 'momentum', 'gap', 'gap'],
+        'signal_date': pd.to_datetime(['2025-01-01'] * 4),
+        'return': [0.01, 0.01, 0.01, 0.01],
+        'weighted_return': [0.475, 0.475, 0.475, 0.475],
+        'weight': [0.475, 0.475, 0.475, 0.475],
+    })
+    result = trade_return_sanity(trades)
+    assert np.isclose(result['max_gross_weight'], 0.95)
+    assert np.isclose(result['max_combined_gross_weight_across_strategies'], 1.9)
 
 
 def test_eligibility_rejects_negative_oos_evidence():
