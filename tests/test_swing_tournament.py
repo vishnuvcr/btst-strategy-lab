@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-from src.swing_tournament import features, simulate
+from src.swing_tournament import features, load, simulate
 
 
 def make_data():
@@ -31,3 +31,18 @@ def test_simulator_uses_full_history_for_multi_day_horizon():
     assert t['horizon'].eq(5).all()
     assert np.isfinite(t['return']).all()
     assert t['weight'].sum() <= 0.95 + 1e-9
+
+
+def test_load_supports_symbol_from_filename(tmp_path):
+    root=tmp_path/'nse'
+    root.mkdir()
+    pd.DataFrame({
+        'Date':pd.date_range('2024-01-01',periods=12,freq='B'),
+        'Open':range(100,112), 'High':range(101,113), 'Low':range(99,111),
+        'Close':range(100,112), 'Adj Close':range(100,112), 'Volume':[200000]*12,
+    }).to_csv(root/'RELIANCE.csv',index=False)
+    cfg={'data':{'min_history_days':10,'min_price':20,'min_turnover_inr':1_000_000,'max_symbols':5000}}
+    d=load(cfg,root)
+    assert d['symbol'].nunique()==1
+    assert d['symbol'].iloc[0]=='RELIANCE'
+    assert len(d)>0
