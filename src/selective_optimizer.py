@@ -10,7 +10,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from swing_tournament import load, features, simulate, stat
+from swing_tournament import load, features, add_forward_fields, simulate, stat
 
 COMPONENTS = ("mr5", "mr20", "sma20", "loc", "volume", "relative")
 
@@ -120,7 +120,7 @@ def _run_horizon_worker(horizon: int):
     d = _WORKER_D
     cfg = _WORKER_CFG
     dates = _WORKER_DATES
-    d["future_close"] = d[f"future_close_{horizon}"]
+    d = add_forward_fields(d, horizon)
     all_rows, all_trades = [], []
     for fold, (va, te) in enumerate(fold_ranges(dates, cfg), 1):
         t, p = tune_fold(d, d, va, te, horizon, cfg)
@@ -139,10 +139,6 @@ def run(cfg, horizons=None):
         raise ValueError("horizons must be a non-empty subset of 5, 10, 20")
 
     d = component_frame(features(load(cfg)))
-    d["entry_open"] = d.groupby("symbol").open.shift(-1)
-    for h in horizons:
-        d[f"future_close_{h}"] = d.groupby("symbol").close.shift(-h)
-
     _WORKER_D = d
     _WORKER_CFG = cfg
     _WORKER_DATES = sorted(d.date.unique())
@@ -176,7 +172,7 @@ def run(cfg, horizons=None):
     fold_df.sort_values(["horizon_days", "fold"]).to_csv("docs/selective_fold_parameters.csv", index=False)
     trades.sort_values(["horizon", "signal_date", "symbol"]).to_csv("docs/selective_oos_trades.csv", index=False)
     manifest = {
-        "engine": "nse_daily_swing_selective_v3_parallel_horizons",
+        "engine": "nse_daily_swing_selective_v4_session_aligned",
         "tuning": "nested validation-to-OOS",
         "horizons": list(horizons),
         "candidate_count": len(candidate_grid()),
@@ -185,6 +181,7 @@ def run(cfg, horizons=None):
         "selection_objective": "Sharpe + profit factor + win rate + expectancy + return - drawdown penalty",
         "survivorship_warning": True,
         "point_in_time_membership": False,
+        "session_alignment": "global trading calendar; incomplete symbol paths rejected",
     }
     json.dump(manifest, open("docs/selective_research_manifest.json", "w", encoding="utf-8"), indent=2)
     print(summary.to_string(index=False))
