@@ -1,11 +1,4 @@
-"""Forensic diagnostics and benchmark helpers for BTST research.
-
-These helpers are deliberately independent of strategy selection. They are used to
-answer three questions before trusting a tournament result:
-1. Are trade/accounting returns internally sane?
-2. Is the strategy actually adding value versus simple baselines?
-3. Is the reported equity curve dominated by exposure or a small number of bad days?
-"""
+"""Forensic diagnostics and benchmark helpers for BTST research."""
 from __future__ import annotations
 
 import numpy as np
@@ -78,27 +71,39 @@ def random_entry_benchmark(df: pd.DataFrame, top_n: int, repeats: int = 100, see
     missing = sorted(required - set(df.columns))
     if missing:
         raise ValueError(f"Missing random benchmark columns: {missing}")
-    x = df[list(required)].dropna().copy()
+    x = df[["date", "symbol", "next_open", "next_close"]].dropna().copy()
     x["next_return"] = x["next_close"] / x["next_open"] - 1.0
+    # Materialize per-date return arrays once. Re-filtering the complete universe
+    # inside every Monte-Carlo repetition is prohibitively expensive at scale.
+    groups = [g["next_return"].to_numpy(dtype=float) for _, g in x.groupby("date", sort=True)]
     rng = np.random.default_rng(seed)
-    daily_returns = []
-    dates = sorted(x["date"].unique())
-    for _ in range(int(repeats)):
-        path = []
-        for d in dates:
-            day = x[x["date"] == d]
-            if day.empty:
+    totals = np.empty(int(repeats), dtype=float)
+    valid = 0
+    for rep in range(int(repeats)):
+        log_growth = 0.0
+        used = 0
+        for returns in groups:
+            n = min(int(top_n), len(returns))
+            if n <= 0:
                 continue
-            n = min(int(top_n), len(day))
-            picks = rng.choice(len(day), size=n, replace=False)
-            path.append(float(day.iloc[picks]["next_return"].mean()))
-        if path:
-            daily_returns.append(float((1.0 + pd.Series(path)).prod() - 1.0))
-    if not daily_returns:
+            if n == len(returns):
+                sample = returns
+            else:
+                sample = returns[rng.choice(len(returns), size=n, replace=False)]
+            daily_return = float(sample.mean())
+            if daily_return <= -1.0:
+                log_growth = -np.inf
+                break
+            log_growth += np.log1p(daily_return)
+            used += 1
+        if used:
+            totals[valid] = np.expm1(log_growth)
+            valid += 1
+    if valid == 0:
         return {"repeats": 0, "median_total_return": 0.0}
-    a = np.asarray(daily_returns, dtype=float)
+    a = totals[:valid]
     return {
-        "repeats": int(len(a)),
+        "repeats": int(valid),
         "median_total_return": float(np.median(a)),
         "p05_total_return": float(np.quantile(a, 0.05)),
         "p95_total_return": float(np.quantile(a, 0.95)),
