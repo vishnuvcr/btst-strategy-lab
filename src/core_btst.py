@@ -55,9 +55,6 @@ def read_market_files(pattern: str, max_files: int | None = None) -> pd.DataFram
             continue
         df.columns = [_norm_col(c) for c in df.columns]
 
-        # Some Kaggle daily files use `price` as the date/index column while
-        # also providing OHLCV columns. Only treat `price` as a date field
-        # when it actually parses as dates; otherwise it remains a price alias.
         date_col = next((c for c in ["date", "datetime", "timestamp", "time"] if c in df.columns), None)
         if date_col is None and "price" in df.columns:
             price_as_date = pd.to_datetime(df["price"], errors="coerce", utc=True)
@@ -79,6 +76,13 @@ def read_market_files(pattern: str, max_files: int | None = None) -> pd.DataFram
         if not all(c in df.columns for c in ["open", "high", "low", "close"]):
             skipped.append(f"{fp}: missing OHLC after normalization; columns={list(df.columns)[:12]}")
             continue
+
+        # Kaggle CSVs can be parsed by pandas/pyarrow as strings even when
+        # OHLCV values are numeric-looking. Force numeric dtypes here so all
+        # downstream arithmetic (pct_change, ATR, ratios) is reliable.
+        for c in ["open", "high", "low", "close", "volume"]:
+            if c in df.columns:
+                df[c] = pd.to_numeric(df[c], errors="coerce")
 
         raw_date = df[date_col]
         parsed = pd.to_datetime(raw_date, errors="coerce", utc=True)
