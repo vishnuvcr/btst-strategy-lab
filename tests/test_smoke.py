@@ -15,6 +15,14 @@ def _sample_frame(periods=80):
     return pd.DataFrame(rows)
 
 
+def _cfg(stop_mode='PCT'):
+    return {
+        'costs': {'slippage_bps_per_side': 0, 'transaction_cost_bps_per_side': 0},
+        'execution': {'stop_mode': stop_mode, 'stop_pct': 2, 'target_pct': 5, 'stop_atr_mult': 1.5, 'target_atr_mult': 2},
+        'portfolio': {'max_gross_exposure': 0.95},
+    }
+
+
 def test_btst_label_and_next_session_alignment():
     df = prepare_entries(add_features(_sample_frame()))
     assert df['next_open'].notna().sum() > 0
@@ -59,9 +67,10 @@ def test_numeric_coercion_and_simulation(tmp_path):
     x = prepare_entries(add_features(out))
     x['score'] = 0.9
     picks = x.dropna(subset=['next_open', 'next_high', 'next_low', 'next_close']).copy()
-    trades, _ = simulate_trades(picks, {'costs': {'slippage_bps_per_side': 5, 'transaction_cost_bps_per_side': 8}, 'execution': {'stop_mode': 'ATR', 'stop_pct': 2, 'target_pct': 5, 'stop_atr_mult': 1.5, 'target_atr_mult': 2}, 'portfolio': {'max_gross_exposure': 0.95}})
+    trades, _ = simulate_trades(picks, _cfg('ATR'))
     assert not trades.empty
     assert np.isfinite(trades['return']).all()
+    assert trades['weighted_return'].abs().max() <= 0.95 + 1e-12
 
 
 def test_kaggle_price_column_can_be_the_date_index(tmp_path):
@@ -79,3 +88,29 @@ def test_kaggle_price_column_can_be_the_date_index(tmp_path):
     assert out['date'].notna().all()
     assert out['open'].iloc[0] == 100.5
     assert out['close'].iloc[-1] == 101.0
+
+
+def test_numeric_yyyymmdd_dates_are_not_parsed_as_epoch_nanoseconds(tmp_path):
+    path = tmp_path / 'NUMERIC_DATE.csv'
+    pd.DataFrame({
+        'date': [20150105, 20150106, 20150107],
+        'open': [100, 101, 102],
+        'high': [102, 103, 104],
+        'low': [99, 100, 101],
+        'close': [101, 102, 103],
+    }).to_csv(path, index=False)
+    out = read_market_files(str(path))
+    assert out['date'].dt.year.min() == 2015
+    assert out['date'].dt.strftime('%Y%m%d').tolist() == ['20150105', '20150106', '20150107']
+
+
+def test_portfolio_weighting_is_bounded_by_max_gross():
+    dates = pd.date_range('2025-01-01', periods=3, freq='B')
+    rows = []
+    for d in dates:
+        for symbol in ['AAA', 'BBB', 'CCC']:
+            rows.append({'date': d, 'symbol': symbol, 'next_open': 100.0, 'next_high': 100.5, 'next_low': 100.0, 'next_close': 100.5, 'score': 0.9, 'atr_pct': 0.01})
+    trades, total = simulate_trades(pd.DataFrame(rows), _cfg('PCT'))
+    assert np.isclose(trades.groupby('signal_date')['weight'].sum().max(), 0.95)
+    assert np.isclose(trades.groupby('signal_date')['weighted_return'].sum().max(), 0.95 * 0.005)
+    assert np.isfinite(total)
