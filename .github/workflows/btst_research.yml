@@ -66,8 +66,8 @@ jobs:
       - name: Audit data
         run: python scripts/audit_data.py
 
-      - name: Run strategy competition
-        run: python src/btst_lab.py --config config/btst.yaml
+      - name: Run leakage-safe strategy tournament
+        run: python src/research_v2.py --config config/btst.yaml
 
       - name: Commit research artifacts
         run: |
