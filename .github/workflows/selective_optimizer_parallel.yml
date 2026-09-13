@@ -1,0 +1,166 @@
+name: NSE Selective Swing Optimization - Parallel Horizons
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: selective-optimizer-parallel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  optimize:
+    name: Optimize ${{ matrix.horizon }}-session horizon
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        horizon: [5, 10, 20]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Syntax and tests
+        run: |
+          python -m compileall -q src scripts tests
+          pytest -q
+
+      - name: Download NSE-wide daily data
+        run: |
+          rm -rf data/nse_all_daily
+          python scripts/download_swing_data.py
+
+      - name: Validate downloaded NSE data
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          files=list(Path('data/nse_all_daily').rglob('*.csv'))
+          assert len(files) >= 100, f'Unexpectedly small NSE dataset: {len(files)} files'
+          print('NSE CSV files:', len(files))
+          PY
+
+      - name: Run nested selective optimizer
+        run: python src/selective_optimizer.py --config config/swing.yaml --horizon ${{ matrix.horizon }}
+
+      - name: Validate horizon artifact
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          h=int('${{ matrix.horizon }}')
+          for p in ['docs/selective_oos_summary.csv','docs/selective_fold_parameters.csv','docs/selective_oos_trades.csv','docs/selective_research_manifest.json']:
+              assert Path(p).is_file() and Path(p).stat().st_size > 0, p
+          s=pd.read_csv('docs/selective_oos_summary.csv')
+          assert set(s.horizon_days) == {h}
+          assert s.trades.ge(0).all()
+          m=json.load(open('docs/selective_research_manifest.json',encoding='utf-8'))
+          assert m['candidate_count'] == 100
+          assert m['horizons'] == [h]
+          assert m['point_in_time_membership'] is False
+          print(s.to_string(index=False))
+          print(json.dumps(m,indent=2))
+          PY
+
+      - name: Upload horizon artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: selective-horizon-${{ matrix.horizon }}
+          path: |
+            docs/selective_oos_summary.csv
+            docs/selective_fold_parameters.csv
+            docs/selective_oos_trades.csv
+            docs/selective_research_manifest.json
+
+  aggregate:
+    name: Aggregate parallel horizons
+    needs: optimize
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download horizon artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: selective-horizon-*
+          path: horizon-artifacts
+
+      - name: Aggregate and validate results
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+
+          root=Path('horizon-artifacts')
+          dirs=sorted(p for p in root.iterdir() if p.is_dir())
+          assert {p.name for p in dirs} == {'selective-horizon-5','selective-horizon-10','selective-horizon-20'}
+
+          summaries=[]
+          folds=[]
+          trades=[]
+          manifests=[]
+          for d in dirs:
+              summaries.append(pd.read_csv(d/'docs/selective_oos_summary.csv'))
+              folds.append(pd.read_csv(d/'docs/selective_fold_parameters.csv'))
+              trades.append(pd.read_csv(d/'docs/selective_oos_trades.csv'))
+              manifests.append(json.load(open(d/'docs/selective_research_manifest.json',encoding='utf-8')))
+
+          summary=pd.concat(summaries,ignore_index=True).sort_values(['sharpe','expectancy'],ascending=False)
+          fold_df=pd.concat(folds,ignore_index=True).sort_values(['horizon_days','fold'])
+          trade_df=pd.concat(trades,ignore_index=True).sort_values(['horizon','date','symbol'])
+
+          assert set(summary.horizon_days)=={5,10,20}
+          assert len(summary)==3
+          assert set(fold_df.horizon_days)=={5,10,20}
+          assert set(trade_df.horizon)=={5,10,20}
+          assert all(m['candidate_count']==100 for m in manifests)
+          assert all(m['point_in_time_membership'] is False for m in manifests)
+
+          Path('docs').mkdir(exist_ok=True)
+          summary.to_csv('docs/selective_oos_summary.csv',index=False)
+          fold_df.to_csv('docs/selective_fold_parameters.csv',index=False)
+          trade_df.to_csv('docs/selective_oos_trades.csv',index=False)
+          manifest={
+              'engine':'nse_daily_swing_selective_v3_distributed_horizons',
+              'tuning':'nested validation-to-OOS',
+              'horizons':[5,10,20],
+              'candidate_count':100,
+              'exact_simulation_finalists_per_fold':5,
+              'parallel_horizon_jobs':3,
+              'selection_objective':manifests[0]['selection_objective'],
+              'survivorship_warning':True,
+              'point_in_time_membership':False,
+              'source_manifests':manifests,
+          }
+          json.dump(manifest,open('docs/selective_research_manifest.json','w',encoding='utf-8'),indent=2)
+          print(summary.to_string(index=False))
+          print(json.dumps(manifest,indent=2))
+          PY
+
+      - name: Upload combined optimization artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nse-selective-optimization-parallel
+          path: |
+            docs/selective_oos_summary.csv
+            docs/selective_fold_parameters.csv
+            docs/selective_oos_trades.csv
+            docs/selective_research_manifest.json
