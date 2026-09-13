@@ -53,6 +53,9 @@ jobs:
       - name: Run leakage-safe strategy tournament
         run: python src/research_v2.py --config config/btst.yaml
 
+      - name: Forensic trade and benchmark audit
+        run: python scripts/forensic_audit.py
+
       - name: Validate research artifacts
         run: |
           python - <<'PY'
@@ -64,6 +67,7 @@ jobs:
               'docs/strategy_leaderboard.json',
               'docs/oos_trades.csv',
               'docs/research_manifest.json',
+              'docs/forensic_audit.json',
           ]
           for p in required:
               assert Path(p).is_file() and Path(p).stat().st_size > 0, f'Missing/empty artifact: {p}'
@@ -74,9 +78,14 @@ jobs:
           assert lb[['total_return', 'sharpe', 'max_drawdown', 'score']].notna().all().all()
           with open('docs/research_manifest.json', encoding='utf-8') as f:
               manifest = json.load(f)
+          with open('docs/forensic_audit.json', encoding='utf-8') as f:
+              forensic = json.load(f)
           assert manifest.get('symbols_tested', 0) > 0
           assert manifest.get('date_start') and manifest.get('date_end')
+          assert forensic.get('trade_sanity', {}).get('finite_returns') is True
+          assert forensic.get('trade_sanity', {}).get('max_gross_weight', 0) <= 1.0 + 1e-9
           print(lb[['strategy', 'trades', 'total_return', 'sharpe', 'max_drawdown', 'score', 'eligible']].to_string(index=False))
+          print(json.dumps(forensic['benchmarks'], indent=2))
           PY
 
       - name: Commit research artifacts
@@ -95,4 +104,5 @@ jobs:
             docs/strategy_leaderboard.json
             docs/oos_trades.csv
             docs/research_manifest.json
+            docs/forensic_audit.json
             docs/data_audit.json
