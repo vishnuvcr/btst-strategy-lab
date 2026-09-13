@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import glob
 import json
-import re
 from pathlib import Path
 
 import pandas as pd
@@ -28,6 +27,12 @@ def audit(root: str) -> dict:
     max_date = None
     symbols = set()
     problems = []
+    duplicate_rows = 0
+    invalid_ohlc_rows = 0
+    extreme_return_rows = 0
+    extreme_return_symbols = set()
+    zero_volume_rows = 0
+    volume_rows = 0
     for fp in files:
         try:
             df = pd.read_csv(fp)
@@ -46,12 +51,50 @@ def audit(root: str) -> dict:
                     lo, hi = d.min(), d.max()
                     min_date = lo if min_date is None else min(min_date, lo)
                     max_date = hi if max_date is None else max(max_date, hi)
+                    duplicate_rows += int(d.duplicated().sum())
                 else:
                     problems.append(f'invalid dates: {fp}')
+            numeric = {}
+            for c in ['open', 'high', 'low', 'close', 'volume']:
+                actual = next((x for x in df.columns if str(x).strip().lower().replace(' ', '_') == c), None)
+                if actual is not None:
+                    numeric[c] = pd.to_numeric(df[actual], errors='coerce')
+            o, h, l, c = (numeric.get(k) for k in ['open', 'high', 'low', 'close'])
+            if all(v is not None for v in [o, h, l, c]):
+                bad = (o <= 0) | (h <= 0) | (l <= 0) | (c <= 0) | (h < l) | (h < o) | (h < c) | (l > o) | (l > c)
+                invalid_ohlc_rows += int(bad.fillna(False).sum())
+                close_ret = c.pct_change()
+                extreme = close_ret.abs() > 0.50
+                n_extreme = int(extreme.fillna(False).sum())
+                extreme_return_rows += n_extreme
+                if n_extreme:
+                    extreme_return_symbols.add(Path(fp).stem.upper())
+            if 'volume' in numeric:
+                v = numeric['volume']
+                volume_rows += int(v.notna().sum())
+                zero_volume_rows += int((v.fillna(0) <= 0).sum())
             symbols.add(Path(fp).stem.upper())
         except Exception as e:
             problems.append(f'read error {fp}: {e}')
-    return {'files': len(files), 'usable_files': usable, 'rows': rows, 'symbols': len(symbols), 'min_date': str(min_date), 'max_date': str(max_date), 'problems': problems[:100]}
+
+    return {
+        'files': len(files),
+        'usable_files': usable,
+        'rows': rows,
+        'symbols': len(symbols),
+        'min_date': str(min_date),
+        'max_date': str(max_date),
+        'quality_checks': {
+            'duplicate_date_rows': duplicate_rows,
+            'invalid_ohlc_rows': invalid_ohlc_rows,
+            'extreme_close_return_rows_gt_50pct': extreme_return_rows,
+            'extreme_return_symbols': sorted(extreme_return_symbols),
+            'zero_or_negative_volume_rows': zero_volume_rows,
+            'volume_rows': volume_rows,
+            'extreme_return_threshold': 0.50,
+        },
+        'problems': problems[:100],
+    }
 
 
 if __name__ == '__main__':
