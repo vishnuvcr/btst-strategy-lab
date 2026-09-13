@@ -1,0 +1,60 @@
+data:
+  timezone: Asia/Kolkata
+  source: nse_security_master_yahoo
+  daily_glob: data/nse_all_daily/**/*.csv
+  market_glob: data/market/**/NIFTY 50_day.csv
+  start_date: "2015-01-01"
+  min_history_days: 252
+  min_price: 20
+  min_turnover_inr: 10000000
+  max_symbols: 5000
+  yahoo_batch_size: 50
+
+universe:
+  name: nse_all_current_listed
+  include_equity_only: true
+  point_in_time_membership: false
+  survivorship_warning: true
+
+research:
+  entry: next_session_open
+  horizons_days: [1, 2, 3, 5, 10, 20]
+  train_years: 4
+  validation_months: 12
+  test_months: 12
+  step_months: 12
+  embargo_days: 1
+  min_train_observations: 5000
+  min_trades_oos: 100
+  random_state: 42
+
+costs:
+  slippage_bps_per_side: 5.0
+  transaction_cost_bps_per_side: 8.0
+
+portfolio:
+  initial_capital: 1000000
+  max_positions: 20
+  risk_per_trade: 0.005
+  max_gross_exposure: 0.95
+  max_participation_pct_adv: 5.0
+  sector_cap: 0.30
+
+execution:
+  stop_mode: ATR
+  stop_atr_mult: 1.5
+  stop_pct: 3.0
+  target_mode: ATR
+  target_atr_mult: 3.0
+  target_pct: 8.0
+  stop_first_when_same_day_ambiguous: true
+
+strategy_search:
+  families:
+    - momentum
+    - mean_reversion
+    - closing_strength
+    - volume
+    - breakout
+    - regime
+    - relative_strength
