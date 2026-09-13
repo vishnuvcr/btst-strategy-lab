@@ -31,8 +31,9 @@ The default runner is `src/research_v2.py`.
 7. OOS folds are concatenated only after each fold has been evaluated with parameters chosen without that fold's outcomes.
 8. Costs and slippage are applied on both entry and exit.
 9. Daily OHLC cannot reveal the intraday order of stop and target hits; the simulator uses stop-first ordering as the conservative assumption.
-10. A strategy is marked `eligible` only when it clears the configured OOS trade-count and parameter-stability gates.
-11. The final leaderboard is a research ranking, not a claim that the top row will be profitable in live trading.
+10. A strategy is marked `eligible` only when it clears the configured OOS trade-count, parameter-stability, and positive-evidence gates.
+11. An infinite profit factor is valid when there are no losing trades; invalid/NaN PF is rejected.
+12. The final leaderboard is a research ranking, not a claim that the top row will be profitable in live trading.
 
 ## Important data caveats
 
@@ -72,6 +73,6 @@ The research pipeline produces:
 
 ## Status
 
-The research engine, compatibility layer, tests, data audit, and GitHub Actions orchestration are implemented. The first complete historical tournament still needs to be run on GitHub Actions; no performance result is claimed until that run finishes.
+The research engine, compatibility layer, tests, data audit, forensic audit, and GitHub Actions orchestration are implemented. A corrected full historical tournament is being rerun after hardening the OOS eligibility gate. No performance result is considered valid until that corrected run and its forensic checks finish.
 
 **This is a research system, not investment advice or an automated broker.**
