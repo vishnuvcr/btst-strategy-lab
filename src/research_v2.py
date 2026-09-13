@@ -7,7 +7,6 @@ from typing import Dict, List
 
 import numpy as np
 import pandas as pd
-import yaml
 
 from btst_lab import (
     add_cross_sectional_features,
@@ -154,8 +153,8 @@ def run_ml_family(df: pd.DataFrame, family: str, cfg: dict) -> tuple[pd.DataFram
         threshold = best[0]
         thresholds.append(threshold)
         test = test[test.score >= threshold].copy()
-        test["rank"] = test.groupby("date").score.rank(method="first", ascending=False)
-        test = test[test.rank <= int(cfg["portfolio"]["max_positions"])]
+        test["rank"] = test.groupby("date")["score"].rank(method="first", ascending=False)
+        test = test[test["rank"] <= int(cfg["portfolio"]["max_positions"])]
         trades, _ = simulate_trades(test, cfg)
         if not trades.empty:
             trades["fold"] = len(folds) + 1
