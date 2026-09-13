@@ -2,7 +2,8 @@ import numpy as np
 import pandas as pd
 
 from src.btst_lab import add_features, add_cross_sectional_features, prepare_entries, select_top, strategy_scores
-from src.core_btst import read_market_files, simulate_trades
+from src.core_btst import read_market_files, simulate_trades, metrics
+from src.research_v2 import eligibility
 
 
 def _sample_frame(periods=80):
@@ -114,3 +115,32 @@ def test_portfolio_weighting_is_bounded_by_max_gross():
     assert np.isclose(trades.groupby('signal_date')['weight'].sum().max(), 0.95)
     assert np.isclose(trades.groupby('signal_date')['weighted_return'].sum().max(), 0.95 * 0.005)
     assert np.isfinite(total)
+
+
+def test_eligibility_rejects_negative_oos_evidence():
+    dates = pd.date_range('2025-01-01', periods=40, freq='B')
+    trades = pd.DataFrame({
+        'signal_date': dates,
+        'return': np.full(len(dates), -0.01),
+        'weighted_return': np.full(len(dates), -0.0095),
+    })
+    result = metrics(trades, 'bad', 1_000_000)
+    eligible, reasons = eligibility(result, trades, {'parameter_stability': 1.0}, 30)
+    assert not eligible
+    assert 'non_positive_expectancy' in reasons
+    assert 'profit_factor<=1' in reasons
+    assert 'non_positive_sharpe' in reasons
+    assert 'non_positive_oos_return' in reasons
+
+
+def test_eligibility_accepts_only_positive_evidence():
+    dates = pd.date_range('2025-01-01', periods=40, freq='B')
+    trades = pd.DataFrame({
+        'signal_date': dates,
+        'return': np.full(len(dates), 0.01),
+        'weighted_return': np.full(len(dates), 0.0095),
+    })
+    result = metrics(trades, 'good', 1_000_000)
+    eligible, reasons = eligibility(result, trades, {'parameter_stability': 1.0}, 30)
+    assert eligible
+    assert reasons == []
