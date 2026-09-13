@@ -70,17 +70,14 @@ def tune_rule(x: pd.DataFrame, family: str, cfg: dict, val_dates) -> dict:
         for min_score in score_candidates:
             picks = select_top(val, top_n=top_n, min_score=min_score)
             trades, _ = simulate_trades(picks, cfg)
-            s = rule_score(trades)
-            candidate = (s, top_n, min_score, len(trades))
-            if best is None or candidate[0] > best[0]:
-                best = candidate
-    if best is None:
-        return {"top_n": 10, "min_score": 0.60, "validation_score": -1e9, "validation_trades": 0}
-    return {"top_n": best[1], "min_score": best[2], "validation_score": best[0], "validation_trades": best[3]}
+            score = rule_score(trades)
+            if best is None or score > best["score"]:
+                best = {"top_n": top_n, "min_score": min_score, "score": score}
+    return best or {"top_n": 10, "min_score": 0.60, "score": -1e9}
 
 
 def evaluate_rule_family(df: pd.DataFrame, family: str, cfg: dict) -> tuple[pd.DataFrame, dict]:
-    dates = sorted(df["date"].dropna().unique())
+    dates = sorted(df.date.unique())
     r = cfg["research"]
     train_days = int(r.get("train_years", 4) * 252)
     val_days = int(r.get("validation_months", 12) * 21)
@@ -197,7 +194,9 @@ def eligibility(result, trades: pd.DataFrame, diag: dict, min_oos: int, min_stab
         reasons.append(f"stability<{min_stability:.2f}")
     if result.expectancy <= 0:
         reasons.append("non_positive_expectancy")
-    if not np.isfinite(result.profit_factor) or result.profit_factor <= 1:
+    # An infinite profit factor is valid when there are no losing trades. Reject
+    # NaN/invalid values, but do not reject +inf merely because it is non-finite.
+    if np.isnan(result.profit_factor) or result.profit_factor <= 1:
         reasons.append("profit_factor<=1")
     if result.sharpe <= 0:
         reasons.append("non_positive_sharpe")
@@ -208,45 +207,44 @@ def eligibility(result, trades: pd.DataFrame, diag: dict, min_oos: int, min_stab
     return not reasons, reasons
 
 
-def run(config_path: str) -> Dict[str, object]:
+def run(config_path: str):
     cfg = load_config(config_path)
-    max_symbols = int(cfg["data"].get("max_symbols", 200))
     daily = read_market_files(cfg["data"]["daily_glob"])
-    counts = daily.groupby("symbol").date.nunique().sort_values(ascending=False)
-    symbols = counts[counts >= int(cfg["data"].get("min_history_days", 252))].index[:max_symbols]
-    daily = daily[daily.symbol.isin(symbols)].copy()
-    daily = prepare_entries(add_features(daily))
-    try:
-        market = read_market_files(cfg["data"]["market_glob"], max_files=50)
-        daily = add_market_context(daily, market)
-    except Exception:
-        pass
+    market = read_market_files(cfg["data"]["market_glob"])
+    daily = add_features(daily)
+    market = add_features(market)
+    daily = add_market_context(daily, market)
     daily = add_cross_sectional_features(daily)
-
-    families = cfg["strategy_search"]["families"]
-    all_trades, rows = [], []
-    diagnostics = {}
+    symbols = sorted(daily.symbol.dropna().unique())
+    max_symbols = int(cfg["data"].get("max_symbols", 200))
+    symbols = symbols[:max_symbols]
+    daily = daily[daily.symbol.isin(symbols)].copy()
+    daily = prepare_entries(daily)
+    families = list(cfg["strategy_search"]["families"])
     min_oos = int(cfg["research"].get("min_trades_oos", 30))
+    rows = []
+    all_trades = []
+    diagnostics = {}
     for family in families:
         if family in RULE_FAMILIES:
             trades, diag = evaluate_rule_family(daily, family, cfg)
-        elif family in {"ml_ranker", "hybrid"}:
-            trades, diag = run_ml_family(daily, family, cfg)
         else:
-            continue
-        diagnostics[family] = diag
-        if trades.empty:
-            continue
-        result = metrics(trades, family, float(cfg["portfolio"]["initial_capital"]))
+            trades, diag = run_ml_family(daily, family, cfg)
+        result = metrics(trades, family, cfg["portfolio"]["initial_capital"]) if not trades.empty else metrics(pd.DataFrame(), family, cfg["portfolio"]["initial_capital"])
         score = composite(result)
-        stable = max(float(diag.get("parameter_stability", diag.get("threshold_stability", 0.0))), 0.0)
         eligible, rejection_reasons = eligibility(result, trades, diag, min_oos)
-        rows.append({**result.__dict__, "score": score, "eligible": eligible, "eligibility_reasons": ";".join(rejection_reasons), "folds": diag.get("folds", 0), "parameter_stability": stable})
-        trades["strategy"] = family
-        all_trades.append(trades)
-
-    if not rows:
-        raise RuntimeError("No strategy produced OOS trades. Check data coverage and research windows.")
+        stable = diag.get("parameter_stability", diag.get("threshold_stability", 0.0))
+        rows.append({
+            **result.__dict__,
+            "score": score,
+            "eligible": eligible,
+            "eligibility_reasons": ";".join(rejection_reasons),
+            "folds": diag.get("folds", 0),
+            "parameter_stability": stable
+        })
+        if not trades.empty:
+            all_trades.append(trades.assign(strategy=family))
+        diagnostics[family] = diag
     leaderboard = pd.DataFrame(rows).sort_values(["eligible", "score"], ascending=[False, False])
     out_trades = pd.concat(all_trades, ignore_index=True) if all_trades else pd.DataFrame()
     Path("docs").mkdir(exist_ok=True)
