@@ -136,10 +136,11 @@ def test_eligibility_rejects_negative_oos_evidence():
 
 def test_eligibility_accepts_only_positive_evidence():
     dates = pd.date_range('2025-01-01', periods=40, freq='B')
+    returns = np.where(np.arange(len(dates)) % 2 == 0, 0.005, 0.015)
     trades = pd.DataFrame({
         'signal_date': dates,
-        'return': np.full(len(dates), 0.01),
-        'weighted_return': np.full(len(dates), 0.0095),
+        'return': returns,
+        'weighted_return': returns * 0.95,
         'weight': np.full(len(dates), 0.95),
     })
     result = metrics(trades, 'good', 1_000_000)
