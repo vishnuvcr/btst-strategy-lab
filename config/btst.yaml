@@ -2,7 +2,7 @@ data:
   timezone: Asia/Kolkata
   daily_glob: data/daily/**/*.csv
   intraday_glob: data/intraday/**/*.csv
-  market_glob: data/market/**/*.csv
+  market_glob: data/market/**/NIFTY 50_daily_data.csv
   min_history_days: 252
   min_price: 20
   min_turnover_inr: 10000000
