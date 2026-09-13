@@ -120,8 +120,6 @@ def _run_horizon_worker(horizon: int):
     d = _WORKER_D
     cfg = _WORKER_CFG
     dates = _WORKER_DATES
-    # Each forked worker selects the correct forward label for its horizon.
-    # This assignment is isolated to the worker's copy-on-write dataframe.
     d["future_close"] = d[f"future_close_{horizon}"]
     all_rows, all_trades = [], []
     for fold, (va, te) in enumerate(fold_ranges(dates, cfg), 1):
@@ -133,15 +131,15 @@ def _run_horizon_worker(horizon: int):
     return horizon, all_rows, all_trades
 
 
-def run(cfg):
+def run(cfg, horizons=None):
     global _WORKER_D, _WORKER_CFG, _WORKER_DATES
+
+    horizons = tuple(sorted(set(horizons or (5, 10, 20))))
+    if not horizons or not all(h in (5, 10, 20) for h in horizons):
+        raise ValueError("horizons must be a non-empty subset of 5, 10, 20")
 
     d = component_frame(features(load(cfg)))
     d["entry_open"] = d.groupby("symbol").open.shift(-1)
-
-    horizons = (5, 10, 20)
-    # Materialize all labels before forking so child processes only read shared
-    # memory rather than independently recomputing the expensive groupby shifts.
     for h in horizons:
         d[f"future_close_{h}"] = d.groupby("symbol").close.shift(-h)
 
@@ -196,5 +194,6 @@ def run(cfg):
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="config/swing.yaml")
+    ap.add_argument("--horizon", type=int, choices=(5, 10, 20), action="append", help="Run only selected horizon(s); omit to run all three")
     args = ap.parse_args()
-    run(yaml.safe_load(open(args.config, encoding="utf-8")))
+    run(yaml.safe_load(open(args.config, encoding="utf-8")), horizons=args.horizon)
