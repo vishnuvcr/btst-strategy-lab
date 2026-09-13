@@ -1,0 +1,67 @@
+name: BTST Strategy Research Run
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: btst-research
+  cancel-in-progress: true
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download daily and market data
+        run: |
+          python - <<'PY'
+          import yaml
+          from scripts.download_data import download
+          cfg = yaml.safe_load(open('config/btst.yaml'))['data']['kaggle']
+          download(cfg['nifty50_daily'], 'data/daily')
+          download(cfg['nifty_indices_minute'], 'data/market')
+          PY
+
+      - name: Audit data
+        run: python scripts/audit_data.py
+
+      - name: Run leakage-safe strategy tournament
+        run: python src/research_v2.py --config config/btst.yaml
+
+      - name: Commit research artifacts
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add docs/ config/btst.yaml
+          git diff --cached --quiet || (git commit -m 'Auto: BTST strategy research results' && git push)
+
+      - name: Upload research artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: btst-strategy-results
+          path: |
+            docs/strategy_leaderboard.csv
+            docs/strategy_leaderboard.json
+            docs/oos_trades.csv
+            docs/research_manifest.json
+            docs/data_audit.json
