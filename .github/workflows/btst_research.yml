@@ -9,12 +9,12 @@ on:
     inputs:
       include_intraday:
         description: 'Download the large NIFTY-100 5-minute dataset too'
-        required: true
+        required: false
         default: false
         type: boolean
       max_symbols:
         description: 'Maximum stock symbols to test'
-        required: true
+        required: false
         default: '200'
         type: string
 
@@ -45,27 +45,35 @@ jobs:
           pip install -r requirements.txt
 
       - name: Download daily + market data
+        env:
+          PYTHONPATH: .
         run: |
           python - <<'PY'
           import yaml
           from scripts.download_data import download
-          c = yaml.safe_load(open('config/btst.yaml'))['data']['kaggle']
+          with open('config/btst.yaml') as f:
+              c = yaml.safe_load(f)['data']['kaggle']
           download(c['nifty50_daily'], 'data/daily')
           download(c['nifty_indices_minute'], 'data/market')
           PY
 
       - name: Download optional intraday dataset
-        if: ${{ inputs.include_intraday == 'true' }}
+        if: ${{ inputs.include_intraday == true }}
+        env:
+          PYTHONPATH: .
         run: |
           python - <<'PY'
           import yaml
           from scripts.download_data import download
-          c = yaml.safe_load(open('config/btst.yaml'))['data']['kaggle']
+          with open('config/btst.yaml') as f:
+              c = yaml.safe_load(f)['data']['kaggle']
           download(c['nifty100_5m'], 'data/intraday')
           PY
 
       - name: Set universe size
-        run: sed -i "s/max_symbols: [0-9]*/max_symbols: ${{ inputs.max_symbols || '200' }}/" config/btst.yaml
+        env:
+          MAX_SYMBOLS: ${{ inputs.max_symbols || '200' }}
+        run: sed -i -E "s/^  max_symbols: [0-9]+/  max_symbols: ${MAX_SYMBOLS}/" config/btst.yaml
 
       - name: Audit data
         run: python scripts/audit_data.py
@@ -78,7 +86,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           git add docs/ config/btst.yaml
-          git diff --cached --quiet || (git commit -m "Auto: BTST strategy research results" && git push)
+          git diff --cached --quiet || (git commit -m 'Auto: BTST strategy research results' && git push)
 
       - name: Upload research artifacts
         uses: actions/upload-artifact@v4
