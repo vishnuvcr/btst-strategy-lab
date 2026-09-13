@@ -212,7 +212,7 @@ jobs:
           assert all(m['point_in_time_membership'] is False for m in manifests)
           summary=pd.concat(summaries,ignore_index=True).sort_values(['sharpe','expectancy'],ascending=False)
           fold=pd.concat(folds,ignore_index=True).sort_values(['horizon_days','fold'])
-          trade=pd.concat(trades,ignore_index=True).sort_values(['horizon','date','symbol'])
+          trade=pd.concat(trades,ignore_index=True).sort_values(['horizon','signal_date','symbol'])
           summary.to_csv(docs/'selective_oos_summary.csv',index=False)
           fold.to_csv(docs/'selective_fold_parameters.csv',index=False)
           trade.to_csv(docs/'selective_oos_trades.csv',index=False)
