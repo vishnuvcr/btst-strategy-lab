@@ -34,6 +34,7 @@ def test_forward_fields_reject_symbol_gaps():
 def test_simulate_rejects_incomplete_symbol_path():
     dates = pd.date_range('2025-01-01', periods=6, freq='B')
     history = pd.DataFrame(_rows('AAA', dates.delete(2)))
+    history = pd.concat([history, pd.DataFrame(_rows('BBB', dates))], ignore_index=True)
     picks = pd.DataFrame([{'date': dates[0], 'symbol': 'AAA', 'entry_open': 101.0,
                            'atr': 0.01, 'score': 1.0}])
     trades = simulate(picks, history, _cfg(), 3)
