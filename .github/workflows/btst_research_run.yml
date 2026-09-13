@@ -111,13 +111,6 @@ jobs:
           print(json.dumps(data_audit['daily']['quality_checks'], indent=2))
           PY
 
-      - name: Commit research artifacts
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add docs/ config/btst.yaml
-          git diff --cached --quiet || (git commit -m 'Auto: BTST strategy research results' && git push)
-
       - name: Upload research artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -129,3 +122,25 @@ jobs:
             docs/research_manifest.json
             docs/forensic_audit.json
             docs/data_audit.json
+
+      - name: Commit research artifacts
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add docs/ config/btst.yaml
+          if git diff --cached --quiet; then
+            echo 'No research artifact changes to commit.'
+            exit 0
+          fi
+          git commit -m 'Auto: BTST strategy research results'
+          for attempt in 1 2 3; do
+            git fetch origin main
+            if git rebase origin/main && git push origin HEAD:main; then
+              echo "Research artifacts pushed successfully on attempt ${attempt}."
+              exit 0
+            fi
+            echo "Push attempt ${attempt} failed; retrying after refetch/rebase."
+            git rebase --abort || true
+          done
+          echo 'Unable to push research artifacts after 3 attempts.'
+          exit 1
