@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import argparse, json, math
+import argparse, json, math, re
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -15,28 +15,61 @@ def dates(s):
     m=out.isna(); out.loc[m]=pd.to_datetime(s.loc[m],errors="coerce",format="mixed"); return out.dt.normalize()
 
 
-def load(cfg):
-    frames=[]
-    for fp in sorted(Path("data/nse_all_daily").rglob("*.csv")):
+def _filename_symbol(fp: Path) -> str | None:
+    """Infer a ticker only when the file appears to be a single-stock file."""
+    stem=fp.stem.upper().strip()
+    stem=re.sub(r"\.(NS|NSE)$", "", stem)
+    stem=re.sub(r"^(STOCK_|STOCK-|NSE_|NSE-)", "", stem)
+    stem=re.sub(r"(_DATA|_HISTORICAL|_HISTORY|_DAILY|_OHLCV)$", "", stem)
+    generic={"ALL_STOCKS","ALL_STOCK","NSE_STOCKS","NSE_STOCK","HISTORICAL_DATA","DATA","STOCKS","NSE_DATA"}
+    if not stem or stem in generic or len(stem)>40 or not re.fullmatch(r"[A-Z0-9&_-]+",stem):
+        return None
+    return stem
+
+
+def load(cfg, root="data/nse_all_daily"):
+    """Load NSE daily CSVs, supporting both consolidated files and one-file-per-symbol layouts."""
+    frames=[]; scanned=0; skipped=0; missing_schema={}
+    root_path=Path(root)
+    for fp in sorted(root_path.rglob("*.csv")):
+        scanned+=1
         try: x=pd.read_csv(fp)
-        except Exception: continue
+        except Exception: skipped+=1; continue
         x.columns=[str(c).replace("\ufeff","").strip().lower().replace(" ","_") for c in x.columns]
         def pick(*a): return next((c for c in a if c in x.columns),None)
-        mapping={"symbol":pick("symbol","ticker","code"),"date":pick("date","datetime","timestamp"),"open":pick("open"),"high":pick("high"),"low":pick("low"),"close":pick("close"),"adj_close":pick("adj_close","adjusted_close"),"volume":pick("volume","vol")}
-        if not all(mapping[k] for k in ("symbol","date","open","high","low","close")): continue
-        x=x.rename(columns={v:k for k,v in mapping.items() if v})
+        mapping={"symbol":pick("symbol","ticker","code","scrip","security_code"),"date":pick("date","datetime","timestamp","price"),"open":pick("open"),"high":pick("high"),"low":pick("low"),"close":pick("close","last_close"),"adj_close":pick("adj_close","adjusted_close","adjclose"),"volume":pick("volume","vol","shares_traded")}
+        if not all(mapping[k] for k in ("date","open","high","low","close")):
+            skipped+=1; missing_schema[fp.name]=[k for k in ("date","open","high","low","close") if not mapping[k]]; continue
+        if mapping["symbol"]:
+            x=x.rename(columns={v:k for k,v in mapping.items() if v})
+        else:
+            sym=_filename_symbol(fp)
+            if sym is None:
+                skipped+=1; missing_schema[fp.name]=["symbol_or_single_stock_filename"]; continue
+            x=x.rename(columns={v:k for k,v in mapping.items() if v})
+            x["symbol"]=sym
         for c in ("open","high","low","close","adj_close","volume"):
             if c in x: x[c]=pd.to_numeric(x[c],errors="coerce")
-        x["date"]=dates(x["date"]); x["symbol"]=x.symbol.astype(str).str.upper().str.replace(r"\.NS$","",regex=True)
+        x["date"]=dates(x["date"]); x["symbol"]=x.symbol.astype(str).str.upper().str.replace(r"\.NS$","",regex=True).str.strip()
         x=x.dropna(subset=["date","symbol","open","high","low","close"])
         if not x.empty: frames.append(x[[c for c in ("date","symbol","open","high","low","close","adj_close","volume") if c in x]])
-    if not frames: raise RuntimeError("No consolidated NSE daily OHLCV dataset found")
+    if not frames:
+        sample={k:v for k,v in list(missing_schema.items())[:10]}
+        raise RuntimeError(f"No usable NSE daily OHLCV CSVs found; scanned={scanned}, skipped={skipped}, examples={sample}")
     d=pd.concat(frames,ignore_index=True).sort_values(["symbol","date"]).drop_duplicates(["symbol","date"],keep="last")
     d["turnover"]=d.close*d.get("volume",pd.Series(np.nan,index=d.index))
-    g=d.groupby("symbol",group_keys=False); hist=g.date.transform("count"); med=g.turnover.transform(lambda s:s.rolling(20,min_periods=10).median())
+    g=d.groupby("symbol",group_keys=False)
+    # Point-in-time eligibility: only information available up to each row is used.
+    hist=g.cumcount()+1
+    med=g.turnover.transform(lambda s:s.rolling(20,min_periods=10).median())
     ok=(hist>=int(cfg["data"]["min_history_days"]))&(d.close>=float(cfg["data"]["min_price"]))&(med>=float(cfg["data"]["min_turnover_inr"]))
-    d=d.loc[ok].copy(); syms=sorted(d.symbol.unique())[:int(cfg["data"].get("max_symbols",5000))]
-    return d[d.symbol.isin(syms)].copy()
+    d=d.loc[ok].copy()
+    max_symbols=cfg["data"].get("max_symbols")
+    if max_symbols is not None:
+        syms=sorted(d.symbol.unique())[:int(max_symbols)]
+        d=d[d.symbol.isin(syms)].copy()
+    print(f"Loaded NSE daily data: files_scanned={scanned}, files_used={len(frames)}, symbols={d.symbol.nunique()}, rows={len(d)}")
+    return d
 
 
 def features(d):
@@ -79,16 +112,10 @@ def simulate(picks,history,cfg,h):
         rows.append((r.date,r.symbol,entry,exit_px,ret,reason,r.score,h,exit_date))
     t=pd.DataFrame(rows,columns=["signal_date","symbol","entry","exit","return","reason","score","horizon","exit_date"])
     if t.empty:return t
-    # Enforce gross exposure across overlapping multi-day positions, not merely by entry date.
-    active=[]
-    for _,r in t.iterrows():
-        active.append((r.signal_date,r.exit_date))
-    max_concurrent=1
+    active=list(zip(t.signal_date,t.exit_date)); max_concurrent=1
     for dt in sorted(set(t.signal_date)|set(t.exit_date)):
-        n=sum(a<=dt<=b for a,b in active)
-        max_concurrent=max(max_concurrent,n)
-    t["weight"]=maxg/max_concurrent
-    t["weighted_return"]=t["return"]*t.weight
+        n=sum(a<=dt<=b for a,b in active); max_concurrent=max(max_concurrent,n)
+    t["weight"]=maxg/max_concurrent; t["weighted_return"]=t["return"]*t.weight
     return t
 
 
