@@ -1,6 +1,10 @@
+import sys
+from pathlib import Path
+
 import numpy as np
 
-from src.research_v2 import fold_dates
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
+from research_v2 import fold_dates
 
 
 def test_fold_dates_respects_embargo_and_order():
