@@ -7,6 +7,7 @@ import pandas as pd
 import yaml
 
 FAMILIES=("momentum","mean_reversion","closing_strength","volume","breakout","regime","relative_strength")
+_SIM_CACHE={}
 
 
 def dates(s):
@@ -59,7 +60,6 @@ def load(cfg, root="data/nse_all_daily"):
     d=pd.concat(frames,ignore_index=True).sort_values(["symbol","date"]).drop_duplicates(["symbol","date"],keep="last")
     d["turnover"]=d.close*d.get("volume",pd.Series(np.nan,index=d.index))
     g=d.groupby("symbol",group_keys=False)
-    # Point-in-time eligibility: only information available up to each row is used.
     hist=g.cumcount()+1
     med=g.turnover.transform(lambda s:s.rolling(20,min_periods=10).median())
     ok=(hist>=int(cfg["data"]["min_history_days"]))&(d.close>=float(cfg["data"]["min_price"]))&(med>=float(cfg["data"]["min_turnover_inr"]))
@@ -96,25 +96,49 @@ def score(d,f):
     raise ValueError(f)
 
 
+def _simulation_cache(history):
+    key=id(history)
+    cached=_SIM_CACHE.get(key)
+    if cached is not None:
+        return cached
+    # Convert each symbol's OHLC path to NumPy once per worker process.  The old
+    # implementation rebuilt DataFrame groups and filtered them for every trade.
+    cached={}
+    for symbol,g in history.groupby("symbol",sort=False):
+        g=g.sort_values("date")
+        cached[symbol]=(g.date.to_numpy(dtype="datetime64[ns]"),g.low.to_numpy(dtype=float),g.high.to_numpy(dtype=float),g.close.to_numpy(dtype=float))
+    _SIM_CACHE[key]=cached
+    return cached
+
+
 def simulate(picks,history,cfg,h):
     if picks.empty:return pd.DataFrame()
     sl=float(cfg["costs"]["slippage_bps_per_side"])/10000; tc=float(cfg["costs"]["transaction_cost_bps_per_side"])/10000; sm=float(cfg["execution"]["stop_atr_mult"]); tm=float(cfg["execution"]["target_atr_mult"]); maxg=float(cfg["portfolio"]["max_gross_exposure"])
     if not 0 < maxg <= 1: raise ValueError("max_gross_exposure must be in (0, 1]")
-    groups={s:g.sort_values("date") for s,g in history.groupby("symbol")}; rows=[]
-    for _,r in picks.iterrows():
-        path=groups.get(r.symbol,pd.DataFrame()); path=path[path.date>r.date].head(h)
-        if len(path)<h: continue
-        entry=float(r.entry_open)*(1+sl); atr=min(max(float(r.atr) if pd.notna(r.atr) else .02,.005),.20); stop=entry*(1-sm*atr); target=entry*(1+tm*atr); exit_px=float(path.iloc[-1].close); reason="time"; exit_date=path.iloc[-1].date
-        for _,bar in path.iterrows():
-            if bar.low<=stop: exit_px,reason,exit_date=stop,"stop",bar.date; break
-            if bar.high>=target: exit_px,reason,exit_date=target,"target",bar.date; break
-        exit_px*=1-sl; ret=(exit_px/entry-1)-2*tc
-        rows.append((r.date,r.symbol,entry,exit_px,ret,reason,r.score,h,exit_date))
+    groups=_simulation_cache(history); rows=[]
+    for r in picks.itertuples(index=False):
+        path=groups.get(r.symbol)
+        if path is None: continue
+        ds,low,high,close=path
+        start=int(np.searchsorted(ds,np.datetime64(r.date),side="right")); end=start+h
+        if end>len(ds): continue
+        entry=float(r.entry_open)*(1+sl); atr=min(max(float(r.atr) if pd.notna(r.atr) else .02,.005),.20); stop=entry*(1-sm*atr); target=entry*(1+tm*atr)
+        exit_idx=end-1; reason="time"
+        for j in range(start,end):
+            if low[j]<=stop:
+                exit_idx=j; reason="stop"; break
+            if high[j]>=target:
+                exit_idx=j; reason="target"; break
+        exit_px=float(close[exit_idx])*(1-sl); ret=(exit_px/entry-1)-2*tc
+        rows.append((r.date,r.symbol,entry,exit_px,ret,reason,r.score,h,ds[exit_idx]))
     t=pd.DataFrame(rows,columns=["signal_date","symbol","entry","exit","return","reason","score","horizon","exit_date"])
     if t.empty:return t
-    active=list(zip(t.signal_date,t.exit_date)); max_concurrent=1
-    for dt in sorted(set(t.signal_date)|set(t.exit_date)):
-        n=sum(a<=dt<=b for a,b in active); max_concurrent=max(max_concurrent,n)
+    # Compute maximum simultaneous open positions with an event sweep.
+    starts=t.groupby("signal_date").size(); ends=t.groupby("exit_date").size(); events=sorted(set(starts.index)|set(ends.index)); active=0; max_concurrent=1
+    for dt in events:
+        active+=int(starts.get(dt,0))
+        max_concurrent=max(max_concurrent,active)
+        active-=int(ends.get(dt,0))
     t["weight"]=maxg/max_concurrent; t["weighted_return"]=t["return"]*t.weight
     return t
 
