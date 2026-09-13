@@ -47,6 +47,38 @@ def _safe_validation_dates(val_dates) -> list:
     return dates[:-1] if len(dates) > 1 else []
 
 
+def _deduplicate_oos_trades(trades: pd.DataFrame, cfg: dict) -> pd.DataFrame:
+    """Make the combined OOS sample unique when rolling test windows overlap.
+
+    With a 12-month test window and a 6-month walk-forward step, a signal date can
+    appear in two adjacent test folds. Keeping the latest fold gives that date the
+    most recently tuned parameters and prevents double-counting its portfolio
+    return. We then recompute portfolio weights after deduplication.
+    """
+    if trades.empty:
+        return trades.copy()
+    required = {"signal_date", "symbol", "return", "fold"}
+    missing = sorted(required - set(trades.columns))
+    if missing:
+        raise ValueError(f"Missing OOS deduplication columns: {missing}")
+    max_gross = float(cfg["portfolio"].get("max_gross_exposure", 0.95))
+    if not (0 < max_gross <= 1):
+        raise ValueError("portfolio.max_gross_exposure must be in (0, 1]")
+
+    out = trades.copy()
+    out["signal_date"] = pd.to_datetime(out["signal_date"]).dt.normalize()
+    out = out.sort_values(["signal_date", "symbol", "fold"])
+    out = out.drop_duplicates(["signal_date", "symbol"], keep="last").reset_index(drop=True)
+
+    counts = out.groupby("signal_date").symbol.transform("count")
+    out["weight"] = max_gross / counts.clip(lower=1)
+    out["weighted_return"] = out["return"].astype(float) * out["weight"]
+    daily = out.groupby("signal_date")["weighted_return"].sum()
+    if (daily < -1.0).any() or (daily > max_gross + 1e-9).any():
+        raise ValueError("Invalid deduplicated daily portfolio return detected")
+    return out
+
+
 def rule_score(val_trades: pd.DataFrame) -> float:
     if val_trades.empty:
         return -1e9
@@ -99,6 +131,7 @@ def evaluate_rule_family(df: pd.DataFrame, family: str, cfg: dict) -> tuple[pd.D
     if not folds:
         return pd.DataFrame(), {"folds": 0, "parameter_stability": 0.0, "params": []}
     out = pd.concat(folds, ignore_index=True)
+    out = _deduplicate_oos_trades(out, cfg)
     keys = [(p["top_n"], p["min_score"]) for p in params]
     stability = float(pd.Series(keys).value_counts(normalize=True).iloc[0]) if keys else 0.0
     return out, {"folds": len(folds), "parameter_stability": stability, "params": params}
@@ -167,6 +200,7 @@ def run_ml_family(df: pd.DataFrame, family: str, cfg: dict) -> tuple[pd.DataFram
     if not folds:
         return pd.DataFrame(), {"folds": 0, "threshold_stability": 0.0, "thresholds": []}
     out = pd.concat(folds, ignore_index=True)
+    out = _deduplicate_oos_trades(out, cfg)
     stability = float(pd.Series(thresholds).round(2).value_counts(normalize=True).iloc[0]) if thresholds else 0.0
     return out, {"folds": len(folds), "threshold_stability": stability, "thresholds": thresholds}
 
@@ -194,8 +228,6 @@ def eligibility(result, trades: pd.DataFrame, diag: dict, min_oos: int, min_stab
         reasons.append(f"stability<{min_stability:.2f}")
     if result.expectancy <= 0:
         reasons.append("non_positive_expectancy")
-    # An infinite profit factor is valid when there are no losing trades. Reject
-    # NaN/invalid values, but do not reject +inf merely because it is non-finite.
     if np.isnan(result.profit_factor) or result.profit_factor <= 1:
         reasons.append("profit_factor<=1")
     if result.sharpe <= 0:
@@ -269,6 +301,7 @@ def run(config_path: str):
         "universe_warning": "Dataset universe may be survivorship-biased unless historical constituents are supplied.",
         "execution_warning": "Daily OHLC cannot determine intraday stop/target ordering; stop-first is used conservatively.",
         "sector_warning": "sector_relative is not truly sector-mapped unless a sector mapping is added.",
+        "walk_forward_warning": "Overlapping test windows are retained for parameter stability, but combined OOS trades are deduplicated by signal_date and symbol using the latest fold.",
         "diagnostics": diagnostics,
     }
     with open("docs/research_manifest.json", "w", encoding="utf-8") as f:
