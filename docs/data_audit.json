@@ -8,9 +8,12 @@
     "max_date": "2026-09-01 00:00:00+00:00",
     "quality_checks": {
       "duplicate_date_rows": 99,
+      "unsorted_date_rows": 0,
       "invalid_ohlc_rows": 0,
       "extreme_close_return_rows_gt_50pct": 0,
       "extreme_return_symbols": [],
+      "max_abs_close_return": 0.3874925986749306,
+      "max_abs_close_return_symbol": "ADANIENT_10YR_DAILY",
       "zero_or_negative_volume_rows": 916,
       "volume_rows": 276642,
       "extreme_return_threshold": 0.5
@@ -30,6 +33,7 @@
     "max_date": "2026-05-20 00:00:00+00:00",
     "quality_checks": {
       "duplicate_date_rows": 252,
+      "unsorted_date_rows": 0,
       "invalid_ohlc_rows": 18394,
       "extreme_close_return_rows_gt_50pct": 3958,
       "extreme_return_symbols": [
@@ -130,6 +134,8 @@
         "NIFTY50 VALUE 20_60MINUTE",
         "NIFTY50 VALUE 20_MINUTE"
       ],
+      "max_abs_close_return": Infinity,
+      "max_abs_close_return_symbol": "NIFTY50 DIV POINT_15MINUTE",
       "zero_or_negative_volume_rows": 78317027,
       "volume_rows": 78317027,
       "extreme_return_threshold": 0.5
