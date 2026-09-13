@@ -85,6 +85,27 @@ def features(d):
     return d.replace([np.inf,-np.inf],np.nan)
 
 
+def add_forward_fields(d,h):
+    """Attach next-session entry and h-session future close on the global market calendar.
+
+    Symbol-local shift alone can jump across multi-month data gaps. Such rows are
+    invalid for daily-session research and are therefore nulled out.
+    """
+    d=d.copy()
+    calendar=pd.DatetimeIndex(sorted(d.date.dropna().unique()))
+    next_map=pd.Series(calendar[1:],index=calendar[:-1]) if len(calendar)>1 else pd.Series(dtype="datetime64[ns]")
+    future_map=pd.Series(calendar[h:],index=calendar[:-h]) if len(calendar)>h else pd.Series(dtype="datetime64[ns]")
+    g=d.groupby("symbol",group_keys=False)
+    next_date=g.date.shift(-1); future_date=g.date.shift(-h)
+    d["entry_open"]=g.open.shift(-1)
+    d["future_close"]=g.close.shift(-h)
+    expected_next=d.date.map(next_map)
+    expected_future=d.date.map(future_map)
+    d.loc[next_date.ne(expected_next),"entry_open"]=np.nan
+    d.loc[future_date.ne(expected_future),"future_close"]=np.nan
+    return d
+
+
 def score(d,f):
     if f=="momentum": return .45*d.r_ret5+.35*d.r_ret20+.20*d.r_loc
     if f=="mean_reversion": return .55*(1-d.r_sma20)+.25*(1-d.r_ret5)+.20*d.r_loc
@@ -101,12 +122,10 @@ def _simulation_cache(history):
     cached=_SIM_CACHE.get(key)
     if cached is not None:
         return cached
-    # Convert each symbol's OHLC path to NumPy once per worker process.  The old
-    # implementation rebuilt DataFrame groups and filtered them for every trade.
     cached={}
     for symbol,g in history.groupby("symbol",sort=False):
         g=g.sort_values("date")
-        cached[symbol]=(g.date.to_numpy(dtype="datetime64[ns]"),g.low.to_numpy(dtype=float),g.high.to_numpy(dtype=float),g.close.to_numpy(dtype=float))
+        cached[symbol]=(g.date.to_numpy(dtype="datetime64[ns]"),g.open.to_numpy(dtype=float),g.low.to_numpy(dtype=float),g.high.to_numpy(dtype=float),g.close.to_numpy(dtype=float))
     _SIM_CACHE[key]=cached
     return cached
 
@@ -115,14 +134,18 @@ def simulate(picks,history,cfg,h):
     if picks.empty:return pd.DataFrame()
     sl=float(cfg["costs"]["slippage_bps_per_side"])/10000; tc=float(cfg["costs"]["transaction_cost_bps_per_side"])/10000; sm=float(cfg["execution"]["stop_atr_mult"]); tm=float(cfg["execution"]["target_atr_mult"]); maxg=float(cfg["portfolio"]["max_gross_exposure"])
     if not 0 < maxg <= 1: raise ValueError("max_gross_exposure must be in (0, 1]")
-    groups=_simulation_cache(history); rows=[]
+    groups=_simulation_cache(history); market_dates=np.array(sorted(history.date.dropna().unique()),dtype="datetime64[ns]"); rows=[]
     for r in picks.itertuples(index=False):
         path=groups.get(r.symbol)
         if path is None: continue
-        ds,low,high,close=path
-        start=int(np.searchsorted(ds,np.datetime64(r.date),side="right")); end=start+h
-        if end>len(ds): continue
-        entry=float(r.entry_open)*(1+sl); atr=min(max(float(r.atr) if pd.notna(r.atr) else .02,.005),.20); stop=entry*(1-sm*atr); target=entry*(1+tm*atr)
+        ds,op,low,high,close=path
+        signal=np.datetime64(r.date)
+        mpos=int(np.searchsorted(market_dates,signal,side="left"))
+        future_dates=market_dates[mpos+1:mpos+1+h]
+        if len(future_dates)!=h: continue
+        start=int(np.searchsorted(ds,future_dates[0],side="left")); end=start+h
+        if end>len(ds) or not np.array_equal(ds[start:end],future_dates): continue
+        entry=float(op[start])*(1+sl); atr=min(max(float(r.atr) if pd.notna(r.atr) else .02,.005),.20); stop=entry*(1-sm*atr); target=entry*(1+tm*atr)
         exit_idx=end-1; reason="time"
         for j in range(start,end):
             if low[j]<=stop:
@@ -133,12 +156,11 @@ def simulate(picks,history,cfg,h):
         rows.append((r.date,r.symbol,entry,exit_px,ret,reason,r.score,h,ds[exit_idx]))
     t=pd.DataFrame(rows,columns=["signal_date","symbol","entry","exit","return","reason","score","horizon","exit_date"])
     if t.empty:return t
-    # Compute maximum simultaneous open positions with an event sweep.
     starts=t.groupby("signal_date").size(); ends=t.groupby("exit_date").size(); events=sorted(set(starts.index)|set(ends.index)); active=0; max_concurrent=1
     for dt in events:
+        active-=int(ends.get(dt,0))
         active+=int(starts.get(dt,0))
         max_concurrent=max(max_concurrent,active)
-        active-=int(ends.get(dt,0))
     t["weight"]=maxg/max_concurrent; t["weighted_return"]=t["return"]*t.weight
     return t
 
@@ -151,7 +173,7 @@ def stat(t):
 
 def run_fold(d,f,h,cfg):
     ds=sorted(d.date.unique()); r=cfg["research"]; trn=int(r["train_years"]*252); vn=int(r["validation_months"]*21); ten=int(r["test_months"]*21); step=int(r["step_months"]*21); emb=int(r["embargo_days"]); start=trn+vn+emb; folds=[]; params=[]
-    work=d.copy(); work["entry_open"]=work.groupby("symbol").open.shift(-1); work["future_close"]=work.groupby("symbol").close.shift(-h)
+    work=add_forward_fields(d,int(h))
     while start<len(ds):
         va=ds[start-vn-emb:start-emb]; te=ds[start:min(start+ten,len(ds))]
         if len(va)<20 or len(te)<20: break
@@ -173,7 +195,7 @@ def main(cfg_path):
             t,st=run_fold(d,f,int(h),cfg); s=stat(t); eligible=bool(s["trades"]>=cfg["research"]["min_trades_oos"] and st>=.34 and s["expectancy"]>0 and s["profit_factor"]>1 and s["sharpe"]>0 and s["total_return"]>0 and s["max_drawdown"]>-.50); rows.append({"horizon_days":h,"strategy":f,**s,"parameter_stability":st,"eligible":eligible});
             if not t.empty: all_t.append(t.assign(strategy=f))
     lb=pd.DataFrame(rows).sort_values(["eligible","sharpe","total_return"],ascending=[False,False,False]); Path("docs").mkdir(exist_ok=True); lb.to_csv("docs/swing_strategy_leaderboard.csv",index=False); (pd.concat(all_t,ignore_index=True) if all_t else pd.DataFrame()).to_csv("docs/swing_oos_trades.csv",index=False)
-    manifest={"engine":"nse_daily_swing_v2","universe":cfg["universe"],"symbols_tested":int(d.symbol.nunique()),"date_start":str(d.date.min().date()),"date_end":str(d.date.max().date()),"horizons_days":cfg["research"]["horizons_days"],"execution_prices":"raw OHLC","feature_price":"adjusted close when available","survivorship_warning":True,"point_in_time_membership":False,"gross_exposure_control":"max concurrent open positions"}
+    manifest={"engine":"nse_daily_swing_v3_session_aligned","universe":cfg["universe"],"symbols_tested":int(d.symbol.nunique()),"date_start":str(d.date.min().date()),"date_end":str(d.date.max().date()),"horizons_days":cfg["research"]["horizons_days"],"execution_prices":"raw OHLC","feature_price":"adjusted close when available","survivorship_warning":True,"point_in_time_membership":False,"gross_exposure_control":"max concurrent open positions","session_alignment":"global trading calendar; incomplete symbol paths rejected"}
     json.dump(manifest,open("docs/swing_research_manifest.json","w",encoding="utf-8"),indent=2); print(lb.to_string(index=False))
 
 if __name__=="__main__":
