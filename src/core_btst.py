@@ -41,6 +41,23 @@ def _norm_col(c: str) -> str:
     return str(c).replace("\ufeff", "").strip().lower().replace(" ", "_").replace("-", "_")
 
 
+def _parse_dates(raw: pd.Series) -> pd.Series:
+    """Parse ISO/date strings and YYYYMMDD numerics without pandas format inference."""
+    s = raw.astype("string").str.replace("\ufeff", "", regex=False).str.strip()
+    out = pd.Series(pd.NaT, index=raw.index, dtype="datetime64[ns, UTC]")
+
+    # Explicit YYYYMMDD handling first. This avoids pandas interpreting an
+    # integer such as 20150105 as nanoseconds after the Unix epoch.
+    compact = s.str.fullmatch(r"\d{8}")
+    if compact.any():
+        out.loc[compact] = pd.to_datetime(s.loc[compact], format="%Y%m%d", errors="coerce", utc=True)
+
+    remaining = out.isna()
+    if remaining.any():
+        out.loc[remaining] = pd.to_datetime(s.loc[remaining], errors="coerce", utc=True, format="mixed")
+    return out
+
+
 def read_market_files(pattern: str, max_files: int | None = None) -> pd.DataFrame:
     files = sorted(glob.glob(pattern, recursive=True))
     if max_files:
@@ -57,7 +74,7 @@ def read_market_files(pattern: str, max_files: int | None = None) -> pd.DataFram
 
         date_col = next((c for c in ["date", "datetime", "timestamp", "time"] if c in df.columns), None)
         if date_col is None and "price" in df.columns:
-            price_as_date = pd.to_datetime(df["price"], errors="coerce", utc=True)
+            price_as_date = _parse_dates(df["price"])
             if price_as_date.notna().mean() >= 0.80:
                 date_col = "price"
         if date_col is None:
@@ -77,19 +94,11 @@ def read_market_files(pattern: str, max_files: int | None = None) -> pd.DataFram
             skipped.append(f"{fp}: missing OHLC after normalization; columns={list(df.columns)[:12]}")
             continue
 
-        # Kaggle CSVs can be parsed by pandas/pyarrow as strings even when
-        # OHLCV values are numeric-looking. Force numeric dtypes here so all
-        # downstream arithmetic (pct_change, ATR, ratios) is reliable.
         for c in ["open", "high", "low", "close", "volume"]:
             if c in df.columns:
                 df[c] = pd.to_numeric(df[c], errors="coerce")
 
-        raw_date = df[date_col]
-        parsed = pd.to_datetime(raw_date, errors="coerce", utc=True)
-        numeric = pd.to_numeric(raw_date, errors="coerce")
-        mask = parsed.isna() & numeric.notna()
-        if mask.any():
-            parsed.loc[mask] = pd.to_datetime(numeric.loc[mask].astype("Int64").astype(str), format="%Y%m%d", errors="coerce", utc=True)
+        parsed = _parse_dates(df[date_col])
         df["date"] = parsed.dt.tz_convert("Asia/Kolkata").dt.tz_localize(None).dt.normalize()
         df = df.dropna(subset=["date", "open", "high", "low", "close"])
         if df.empty:
@@ -200,13 +209,15 @@ def simulate_trades(trades: pd.DataFrame, cfg: dict) -> Tuple[pd.DataFrame, floa
     stop_mult = float(cfg["execution"].get("stop_atr_mult", 1.5))
     target_mult = float(cfg["execution"].get("target_atr_mult", 2.0))
     max_gross = float(cfg["portfolio"].get("max_gross_exposure", 0.95))
+    if not (0 < max_gross <= 1):
+        raise ValueError("portfolio.max_gross_exposure must be in (0, 1]")
     rows = []
     for _, r in trades.iterrows():
         entry = float(r.next_open) * (1 + sl_bps)
         stop = entry * (1 - stop_pct)
         target = entry * (1 + target_pct)
         if stop_mode == "ATR" and pd.notna(r.get("atr_pct")):
-            a = max(float(r.atr_pct), 0.005)
+            a = min(max(float(r.atr_pct), 0.005), 0.20)
             stop = entry * (1 - stop_mult * a)
             target = entry * (1 + target_mult * a)
         lo, hi = float(r.next_low), float(r.next_high)
@@ -222,14 +233,17 @@ def simulate_trades(trades: pd.DataFrame, cfg: dict) -> Tuple[pd.DataFrame, floa
     counts = out.groupby("signal_date").symbol.transform("count")
     out["weight"] = max_gross / counts.clip(lower=1)
     out["weighted_return"] = out["return"] * out["weight"]
-    return out, float(out.weighted_return.sum())
+    daily = out.groupby("signal_date")["weighted_return"].sum()
+    if (daily < -1.0).any() or (daily > max_gross + 1e-9).any():
+        raise ValueError("Invalid daily portfolio return detected")
+    return out, float(daily.sum())
 
 
 def metrics(trades: pd.DataFrame, strategy: str, initial_capital: float, score: float = 0.0) -> BacktestResult:
     if trades.empty:
         return BacktestResult(strategy, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, score)
     r = trades["return"].astype(float)
-    daily = trades.groupby("signal_date").weighted_return.sum().sort_index()
+    daily = trades.groupby("signal_date")["weighted_return"].sum().sort_index()
     wins, losses = r[r > 0], r[r <= 0]
     pf = float(wins.sum() / abs(losses.sum())) if len(losses) else float("inf")
     eq = (1 + daily).cumprod()
