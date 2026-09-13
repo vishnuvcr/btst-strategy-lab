@@ -1,0 +1,13 @@
+name: Actions Smoke Test
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python --version
+      - run: echo "GitHub Actions job creation works"
