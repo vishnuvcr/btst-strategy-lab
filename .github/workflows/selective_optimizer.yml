@@ -2,12 +2,9 @@ name: NSE Selective Swing Optimization
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - nse-swing-research
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   optimize:
@@ -69,11 +66,3 @@ jobs:
             docs/selective_fold_parameters.csv
             docs/selective_oos_trades.csv
             docs/selective_research_manifest.json
-      - name: Commit small optimization artifacts
-        run: |
-          git config user.name 'github-actions[bot]'
-          git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add docs/selective_oos_summary.csv docs/selective_fold_parameters.csv docs/selective_research_manifest.json
-          if git diff --cached --quiet; then exit 0; fi
-          git commit -m 'Auto: selective swing optimization results'
-          git push origin HEAD:nse-swing-research
