@@ -32,6 +32,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Preflight syntax and unit tests
+        run: |
+          python -m compileall -q src scripts tests
+          pytest -q
+
       - name: Download daily and market data
         run: |
           python - <<'PY'
@@ -47,6 +52,32 @@ jobs:
 
       - name: Run leakage-safe strategy tournament
         run: python src/research_v2.py --config config/btst.yaml
+
+      - name: Validate research artifacts
+        run: |
+          python - <<'PY'
+          import json
+          import pandas as pd
+          from pathlib import Path
+          required = [
+              'docs/strategy_leaderboard.csv',
+              'docs/strategy_leaderboard.json',
+              'docs/oos_trades.csv',
+              'docs/research_manifest.json',
+          ]
+          for p in required:
+              assert Path(p).is_file() and Path(p).stat().st_size > 0, f'Missing/empty artifact: {p}'
+          lb = pd.read_csv('docs/strategy_leaderboard.csv')
+          assert not lb.empty, 'Leaderboard is empty'
+          assert {'strategy', 'trades', 'total_return', 'sharpe', 'max_drawdown', 'score', 'eligible'}.issubset(lb.columns)
+          assert lb['trades'].ge(0).all()
+          assert lb[['total_return', 'sharpe', 'max_drawdown', 'score']].notna().all().all()
+          with open('docs/research_manifest.json', encoding='utf-8') as f:
+              manifest = json.load(f)
+          assert manifest.get('symbols_tested', 0) > 0
+          assert manifest.get('date_start') and manifest.get('date_end')
+          print(lb[['strategy', 'trades', 'total_return', 'sharpe', 'max_drawdown', 'score', 'eligible']].to_string(index=False))
+          PY
 
       - name: Commit research artifacts
         run: |
