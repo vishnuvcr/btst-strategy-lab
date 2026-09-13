@@ -50,6 +50,24 @@ jobs:
       - name: Audit data
         run: python scripts/audit_data.py
 
+      - name: Validate data audit schema
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          with open('docs/data_audit.json', encoding='utf-8') as f:
+              audit = json.load(f)
+          for name in ('daily', 'market'):
+              section = audit[name]
+              assert section['usable_files'] > 0, f'No usable {name} files'
+              assert section['min_date'] != 'None' and section['max_date'] != 'None', f'Missing {name} date range'
+              q = section['quality_checks']
+              required = {'duplicate_date_rows', 'invalid_ohlc_rows', 'extreme_close_return_rows_gt_50pct', 'extreme_return_symbols', 'zero_or_negative_volume_rows', 'volume_rows'}
+              assert required.issubset(q), f'Incomplete {name} quality diagnostics'
+              assert q['invalid_ohlc_rows'] == 0, f'Invalid OHLC rows detected in {name}: {q["invalid_ohlc_rows"]}'
+          print(json.dumps(audit, indent=2))
+          PY
+
       - name: Run leakage-safe strategy tournament
         run: python src/research_v2.py --config config/btst.yaml
 
@@ -68,6 +86,7 @@ jobs:
               'docs/oos_trades.csv',
               'docs/research_manifest.json',
               'docs/forensic_audit.json',
+              'docs/data_audit.json',
           ]
           for p in required:
               assert Path(p).is_file() and Path(p).stat().st_size > 0, f'Missing/empty artifact: {p}'
@@ -80,12 +99,16 @@ jobs:
               manifest = json.load(f)
           with open('docs/forensic_audit.json', encoding='utf-8') as f:
               forensic = json.load(f)
+          with open('docs/data_audit.json', encoding='utf-8') as f:
+              data_audit = json.load(f)
           assert manifest.get('symbols_tested', 0) > 0
           assert manifest.get('date_start') and manifest.get('date_end')
           assert forensic.get('trade_sanity', {}).get('finite_returns') is True
           assert forensic.get('trade_sanity', {}).get('max_gross_weight', 0) <= 1.0 + 1e-9
+          assert 'quality_checks' in data_audit.get('daily', {})
           print(lb[['strategy', 'trades', 'total_return', 'sharpe', 'max_drawdown', 'score', 'eligible']].to_string(index=False))
           print(json.dumps(forensic['benchmarks'], indent=2))
+          print(json.dumps(data_audit['daily']['quality_checks'], indent=2))
           PY
 
       - name: Commit research artifacts
