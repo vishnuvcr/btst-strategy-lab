@@ -45,7 +45,6 @@ jobs:
           import pandas as pd
           files=list(Path('data/nse_all_daily').rglob('*.csv'))
           assert files, 'No NSE CSV files were created'
-          symbols=[]
           rows=0
           for p in files[:100]:
               df=pd.read_csv(p, nrows=5)
@@ -53,7 +52,6 @@ jobs:
               required={'date','open','high','low','close','volume','symbol'}
               assert required.issubset(cols), f'{p} missing required columns: {sorted(required-cols)}'
               rows += len(df)
-              symbols.append(p.stem)
           print(f'CSV files: {len(files)}; sampled files: {min(len(files),100)}; sampled rows: {rows}')
           assert len(files) >= 100, f'Unexpectedly small NSE dataset: {len(files)} files'
           PY
@@ -79,7 +77,27 @@ jobs:
           print(json.dumps(m,indent=2))
           PY
 
-      - name: Upload swing research artifacts
+      - name: Run nested selective optimizer
+        run: python src/selective_optimizer.py --config config/swing.yaml
+
+      - name: Validate selective optimization
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          for p in ['docs/selective_oos_summary.csv','docs/selective_fold_parameters.csv','docs/selective_oos_trades.csv','docs/selective_research_manifest.json']:
+              assert Path(p).is_file() and Path(p).stat().st_size > 0, p
+          s=pd.read_csv('docs/selective_oos_summary.csv')
+          assert set(s.horizon_days) == {5,10,20}
+          assert s.trades.ge(0).all()
+          m=json.load(open('docs/selective_research_manifest.json',encoding='utf-8'))
+          assert m['candidate_count'] == 100
+          print(s.to_string(index=False))
+          print(json.dumps(m,indent=2))
+          PY
+
+      - name: Upload swing and optimization artifacts
         uses: actions/upload-artifact@v4
         with:
           name: nse-swing-results
@@ -87,12 +105,16 @@ jobs:
             docs/swing_strategy_leaderboard.csv
             docs/swing_oos_trades.csv
             docs/swing_research_manifest.json
+            docs/selective_oos_summary.csv
+            docs/selective_fold_parameters.csv
+            docs/selective_oos_trades.csv
+            docs/selective_research_manifest.json
 
-      - name: Commit swing research artifacts
+      - name: Commit small research artifacts
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add docs/swing_*.csv docs/swing_*.json
+          git add docs/swing_strategy_leaderboard.csv docs/swing_research_manifest.json docs/selective_oos_summary.csv docs/selective_fold_parameters.csv docs/selective_research_manifest.json
           if git diff --cached --quiet; then exit 0; fi
-          git commit -m 'Auto: NSE swing research results'
+          git commit -m 'Auto: swing optimization results'
           git push origin HEAD:nse-swing-research
