@@ -10,9 +10,9 @@ Reliable swing research can be performed from daily OHLCV. True intraday/day-tra
 
 ## NSE-wide universe
 
-The new runner downloads a dataset covering stocks currently listed on NSE and applies minimum history, price and rolling median turnover filters. NSE itself publishes daily security files and bhavcopy/market reports, including an NSE Listed Securities file and security-wise price/volume data. citeturn0search0turn0search9
+The new runner downloads a dataset covering stocks currently listed on NSE and applies minimum history, price and rolling median turnover filters. NSE publishes daily security files, bhavcopy/market reports, and security-wise price/volume data.
 
-The current public dataset used by the swing workflow is the Kaggle dataset `paramamithra/historical-data-of-stocks-listed-on-nse`, which documents daily OHLCV plus `Adj Close` and `Symbol` fields. citeturn3search0
+The current public dataset used by the swing workflow is the Kaggle dataset `paramamithra/historical-data-of-stocks-listed-on-nse`, which documents daily OHLCV plus `Adj Close` and `Symbol` fields.
 
 **Important:** this is a current-listed-stock universe, not point-in-time historical NSE membership. The manifest explicitly records the survivorship-bias limitation. We will not claim an unbiased historical NSE universe until historical membership is supplied.
 
