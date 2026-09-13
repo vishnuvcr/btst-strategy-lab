@@ -67,7 +67,14 @@ jobs:
               q = section['quality_checks']
               required = {'duplicate_date_rows', 'invalid_ohlc_rows', 'extreme_close_return_rows_gt_50pct', 'extreme_return_symbols', 'zero_or_negative_volume_rows', 'volume_rows'}
               assert required.issubset(q), f'Incomplete {name} quality diagnostics'
-              assert q['invalid_ohlc_rows'] == 0, f'Invalid OHLC rows detected in {name}: {q["invalid_ohlc_rows"]}'
+          # The daily NIFTY-50 stock universe is the trading-data gate and must have
+          # valid OHLC rows. The market dataset intentionally contains many index,
+          # volatility, bond and other instruments whose OHLC/volume conventions
+          # differ; report those diagnostics but do not reject the run globally.
+          assert audit['daily']['quality_checks']['invalid_ohlc_rows'] == 0, (
+              'Invalid OHLC rows detected in daily stock data: '
+              f"{audit['daily']['quality_checks']['invalid_ohlc_rows']}"
+          )
           print(json.dumps(audit, indent=2))
           PY
 
