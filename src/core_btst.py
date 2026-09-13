@@ -54,22 +54,32 @@ def read_market_files(pattern: str, max_files: int | None = None) -> pd.DataFram
             skipped.append(f"{fp}: read error: {exc}")
             continue
         df.columns = [_norm_col(c) for c in df.columns]
+
+        # Some Kaggle daily files use `price` as the date/index column while
+        # also providing OHLCV columns. Only treat `price` as a date field
+        # when it actually parses as dates; otherwise it remains a price alias.
         date_col = next((c for c in ["date", "datetime", "timestamp", "time"] if c in df.columns), None)
+        if date_col is None and "price" in df.columns:
+            price_as_date = pd.to_datetime(df["price"], errors="coerce", utc=True)
+            if price_as_date.notna().mean() >= 0.80:
+                date_col = "price"
         if date_col is None:
             skipped.append(f"{fp}: no date column; columns={list(df.columns)[:12]}")
             continue
+
         aliases = {"open": ["o"], "high": ["h"], "low": ["l"], "close": ["adj_close", "price", "c"], "volume": ["vol", "v"]}
         rename = {}
         for c in ["open", "high", "low", "close", "volume"]:
             if c not in df.columns:
                 for a in aliases[c]:
-                    if a in df.columns:
+                    if a in df.columns and a != date_col:
                         rename[a] = c
                         break
         df = df.rename(columns=rename)
         if not all(c in df.columns for c in ["open", "high", "low", "close"]):
             skipped.append(f"{fp}: missing OHLC after normalization; columns={list(df.columns)[:12]}")
             continue
+
         raw_date = df[date_col]
         parsed = pd.to_datetime(raw_date, errors="coerce", utc=True)
         numeric = pd.to_numeric(raw_date, errors="coerce")
