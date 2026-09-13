@@ -1,14 +1,14 @@
 data:
   timezone: Asia/Kolkata
+  source: nse_security_master_yahoo
   daily_glob: data/nse_all_daily/**/*.csv
   market_glob: data/market/**/NIFTY 50_day.csv
+  start_date: "2015-01-01"
   min_history_days: 252
   min_price: 20
   min_turnover_inr: 10000000
   max_symbols: 5000
-  kaggle:
-    nse_all_daily: paramamithra/historical-data-of-stocks-listed-on-nse
-    nifty_indices_minute: debashis74017/nifty-50-minute-data
+  yahoo_batch_size: 50
 
 universe:
   name: nse_all_current_listed
@@ -58,5 +58,3 @@ strategy_search:
     - breakout
     - regime
     - relative_strength
-    - ml_ranker
-    - hybrid
