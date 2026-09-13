@@ -1,6 +1,10 @@
 name: BTST Strategy Research
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/btst_research.yml'
   workflow_dispatch:
     inputs:
       include_intraday:
@@ -61,7 +65,7 @@ jobs:
           PY
 
       - name: Set universe size
-        run: sed -i "s/max_symbols: [0-9]*/max_symbols: ${{ inputs.max_symbols }}/" config/btst.yaml
+        run: sed -i "s/max_symbols: [0-9]*/max_symbols: ${{ inputs.max_symbols || '200' }}/" config/btst.yaml
 
       - name: Audit data
         run: python scripts/audit_data.py
