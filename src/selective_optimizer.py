@@ -174,7 +174,7 @@ def run(cfg, horizons=None):
     Path("docs").mkdir(exist_ok=True)
     summary.to_csv("docs/selective_oos_summary.csv", index=False)
     fold_df.sort_values(["horizon_days", "fold"]).to_csv("docs/selective_fold_parameters.csv", index=False)
-    trades.sort_values(["horizon", "date", "symbol"]).to_csv("docs/selective_oos_trades.csv", index=False)
+    trades.sort_values(["horizon", "signal_date", "symbol"]).to_csv("docs/selective_oos_trades.csv", index=False)
     manifest = {
         "engine": "nse_daily_swing_selective_v3_parallel_horizons",
         "tuning": "nested validation-to-OOS",
