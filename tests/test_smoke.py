@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from src.btst_lab import add_features, add_cross_sectional_features, prepare_entries, select_top, strategy_scores
+from src.core_btst import read_market_files
 
 
 def test_btst_label_and_next_session_alignment():
@@ -30,3 +31,20 @@ def test_cross_sectional_strategy_produces_ranked_candidates():
     picks = select_top(x, top_n=2, min_score=0.0)
     assert not picks.empty
     assert picks.groupby('date')['symbol'].nunique().max() <= 2
+
+
+def test_kaggle_price_column_can_be_the_date_index(tmp_path):
+    path = tmp_path / 'ADANIENT_10yr_daily.csv'
+    pd.DataFrame({
+        'price': ['2015-01-01', '2015-01-02'],
+        'close': [100.0, 101.0],
+        'high': [102.0, 103.0],
+        'low': [99.0, 100.0],
+        'open': [100.5, 100.8],
+        'volume': [100000, 110000],
+    }).to_csv(path, index=False)
+    out = read_market_files(str(tmp_path / '*.csv'))
+    assert len(out) == 2
+    assert out['date'].notna().all()
+    assert out['open'].iloc[0] == 100.5
+    assert out['close'].iloc[-1] == 101.0
