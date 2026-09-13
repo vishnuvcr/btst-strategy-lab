@@ -54,7 +54,7 @@ jobs:
         run: python src/research_v2.py --config config/btst.yaml
 
       - name: Forensic trade and benchmark audit
-        run: python scripts/forensic_audit.py
+        run: PYTHONPATH=. python scripts/forensic_audit.py
 
       - name: Validate research artifacts
         run: |
