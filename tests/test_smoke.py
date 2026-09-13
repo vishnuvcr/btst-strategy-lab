@@ -84,7 +84,7 @@ def test_kaggle_price_column_can_be_the_date_index(tmp_path):
         'open': [100.5, 100.8],
         'volume': [100000, 110000],
     }).to_csv(path, index=False)
-    out = read_market_files(str(tmp_path / '*.csv'))
+    out = read_market_files(str(path))
     assert len(out) == 2
     assert out['date'].notna().all()
     assert out['open'].iloc[0] == 100.5
@@ -123,6 +123,7 @@ def test_eligibility_rejects_negative_oos_evidence():
         'signal_date': dates,
         'return': np.full(len(dates), -0.01),
         'weighted_return': np.full(len(dates), -0.0095),
+        'weight': np.full(len(dates), 0.95),
     })
     result = metrics(trades, 'bad', 1_000_000)
     eligible, reasons = eligibility(result, trades, {'parameter_stability': 1.0}, 30)
@@ -139,6 +140,7 @@ def test_eligibility_accepts_only_positive_evidence():
         'signal_date': dates,
         'return': np.full(len(dates), 0.01),
         'weighted_return': np.full(len(dates), 0.0095),
+        'weight': np.full(len(dates), 0.95),
     })
     result = metrics(trades, 'good', 1_000_000)
     eligible, reasons = eligibility(result, trades, {'parameter_stability': 1.0}, 30)
