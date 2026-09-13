@@ -4,8 +4,23 @@ import glob
 import json
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
+
+
+def _parse_dates(raw: pd.Series) -> pd.Series:
+    s = raw.astype("string").str.replace("\ufeff", "", regex=False).str.strip()
+    out = pd.Series(pd.NaT, index=raw.index, dtype="datetime64[ns, UTC]")
+    compact = s.str.fullmatch(r"\d{8}")
+    if compact.any():
+        out.loc[compact] = pd.to_datetime(
+            s.loc[compact], format="%Y%m%d", errors="coerce", utc=True
+        )
+    remaining = out.isna()
+    if remaining.any():
+        out.loc[remaining] = pd.to_datetime(
+            s.loc[remaining], errors="coerce", utc=True, format="mixed"
+        )
+    return out
 
 
 def _date_col(df: pd.DataFrame):
@@ -24,26 +39,30 @@ def audit_file(fp: str) -> dict:
     dc = _date_col(df)
     if dc is None:
         return {"file": fp, "usable": False, "reason": "missing date"}
-    d = pd.to_datetime(df[dc], errors="coerce", format="mixed", utc=True)
+    d = _parse_dates(df[dc])
     close = pd.to_numeric(df[lower["close"]], errors="coerce")
     high = pd.to_numeric(df[lower["high"]], errors="coerce")
     low = pd.to_numeric(df[lower["low"]], errors="coerce")
-    x = pd.DataFrame({"date": d, "close": close, "high": high, "low": low}).dropna().sort_values("date")
+    x = pd.DataFrame({"date": d, "close": close, "high": high, "low": low}).dropna()
+    x = x.sort_values("date").drop_duplicates("date", keep="last")
     if x.empty:
         return {"file": fp, "usable": False, "reason": "no valid observations"}
-    ret = x.close.pct_change()
-    # Large close jumps are diagnostics, not proof of a corporate action.
-    jumps = ret.abs() > 0.20
+    ret = x["close"].pct_change()
+    abs_ret = ret.abs()
+    jumps20 = abs_ret > 0.20
+    jumps50 = abs_ret > 0.50
+    valid_returns = abs_ret.dropna()
+    max_idx = valid_returns.idxmax() if not valid_returns.empty else None
     return {
         "file": fp,
         "usable": True,
         "rows": int(len(x)),
-        "date_start": str(x.date.min()),
-        "date_end": str(x.date.max()),
-        "jumps_gt_20pct": int(jumps.fillna(False).sum()),
-        "jumps_gt_50pct": int((ret.abs() > 0.50).fillna(False).sum()),
-        "max_abs_close_return": float(ret.abs().max()) if ret.notna().any() else None,
-        "max_jump_date": str(x.loc[ret.abs().idxmax(), "date"]) if ret.notna().any() else None,
+        "date_start": str(x["date"].min()),
+        "date_end": str(x["date"].max()),
+        "jumps_gt_20pct": int(jumps20.fillna(False).sum()),
+        "jumps_gt_50pct": int(jumps50.fillna(False).sum()),
+        "max_abs_close_return": float(valid_returns.max()) if not valid_returns.empty else None,
+        "max_jump_date": str(x.loc[max_idx, "date"]) if max_idx is not None else None,
         "has_adj_close_column": "adj_close" in lower,
     }
 
