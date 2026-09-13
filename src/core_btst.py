@@ -38,7 +38,7 @@ def load_config(path: str) -> dict:
 
 
 def _norm_col(c: str) -> str:
-    return str(c).strip().lower().replace(" ", "_").replace("-", "_")
+    return str(c).replace("\ufeff", "").strip().lower().replace(" ", "_").replace("-", "_")
 
 
 def read_market_files(pattern: str, max_files: int | None = None) -> pd.DataFrame:
@@ -46,14 +46,17 @@ def read_market_files(pattern: str, max_files: int | None = None) -> pd.DataFram
     if max_files:
         files = files[:max_files]
     frames: List[pd.DataFrame] = []
+    skipped = []
     for fp in files:
         try:
             df = pd.read_csv(fp)
-        except Exception:
+        except Exception as exc:
+            skipped.append(f"{fp}: read error: {exc}")
             continue
         df.columns = [_norm_col(c) for c in df.columns]
         date_col = next((c for c in ["date", "datetime", "timestamp", "time"] if c in df.columns), None)
         if date_col is None:
+            skipped.append(f"{fp}: no date column; columns={list(df.columns)[:12]}")
             continue
         aliases = {"open": ["o"], "high": ["h"], "low": ["l"], "close": ["adj_close", "price", "c"], "volume": ["vol", "v"]}
         rename = {}
@@ -65,9 +68,20 @@ def read_market_files(pattern: str, max_files: int | None = None) -> pd.DataFram
                         break
         df = df.rename(columns=rename)
         if not all(c in df.columns for c in ["open", "high", "low", "close"]):
+            skipped.append(f"{fp}: missing OHLC after normalization; columns={list(df.columns)[:12]}")
             continue
-        df["date"] = pd.to_datetime(df[date_col], errors="coerce", utc=True).dt.tz_convert("Asia/Kolkata").dt.tz_localize(None).dt.normalize()
+        raw_date = df[date_col]
+        # Handle both normal date strings and common YYYYMMDD integer/string formats.
+        parsed = pd.to_datetime(raw_date, errors="coerce", utc=True)
+        numeric = pd.to_numeric(raw_date, errors="coerce")
+        mask = parsed.isna() & numeric.notna()
+        if mask.any():
+            parsed.loc[mask] = pd.to_datetime(numeric.loc[mask].astype("Int64").astype(str), format="%Y%m%d", errors="coerce", utc=True)
+        df["date"] = parsed.dt.tz_convert("Asia/Kolkata").dt.tz_localize(None).dt.normalize()
         df = df.dropna(subset=["date", "open", "high", "low", "close"])
+        if df.empty:
+            skipped.append(f"{fp}: no rows with valid dates/OHLC")
+            continue
         symbol = Path(fp).stem.upper().replace("-", "_")
         df["symbol"] = symbol
         keep = ["date", "symbol", "open", "high", "low", "close"]
@@ -75,7 +89,8 @@ def read_market_files(pattern: str, max_files: int | None = None) -> pd.DataFram
             keep.append("volume")
         frames.append(df[keep])
     if not frames:
-        raise RuntimeError(f"No usable CSV files found for {pattern}")
+        detail = " | ".join(skipped[:5])
+        raise RuntimeError(f"No usable CSV files found for {pattern}. Candidates={len(files)}. {detail}")
     out = pd.concat(frames, ignore_index=True)
     return out.sort_values(["date", "symbol"]).drop_duplicates(["date", "symbol"], keep="last")
 
@@ -110,108 +125,75 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
 def add_market_context(stock: pd.DataFrame, market: pd.DataFrame | None) -> pd.DataFrame:
     if market is None or market.empty:
         return stock
-    m = market.sort_values("date").drop_duplicates("date")
-    m["mkt_ret_1"] = m["close"].pct_change()
-    m["mkt_ret_5"] = m["close"].pct_change(5)
-    m["mkt_vol_20"] = m["mkt_ret_1"].rolling(20, min_periods=15).std()
-    return stock.merge(m[["date", "mkt_ret_1", "mkt_ret_5", "mkt_vol_20"]], on="date", how="left")
+    m = market.copy().sort_values(["symbol", "date"])
+    m = m[m["symbol"].str.contains("NIFTY_50|NIFTY50", regex=True, na=False)]
+    if m.empty:
+        return stock
+    m = m.groupby("date", as_index=False).agg(market_close=("close", "last"))
+    m["market_ret_1"] = m["market_close"].pct_change()
+    m["market_ret_5"] = m["market_close"].pct_change(5)
+    m["market_vol20"] = m["market_ret_1"].rolling(20, min_periods=15).std()
+    return stock.merge(m[["date", "market_ret_1", "market_ret_5", "market_vol20"]], on="date", how="left")
 
 
-def add_cross_sectional_features(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    for c in ["ret_1", "ret_5", "ret_20", "gap", "close_location", "volume_z", "sma20_gap"]:
-        if c in df.columns:
-            df[f"rank_{c}"] = df.groupby("date")[c].rank(pct=True)
-    return df
+def cross_sectional_rank(df: pd.DataFrame, col: str) -> pd.Series:
+    return df.groupby("date")[col].rank(pct=True, method="average")
 
 
-def strategy_scores(df: pd.DataFrame, family: str) -> pd.Series:
+def strategy_score(df: pd.DataFrame, family: str) -> pd.Series:
     if family == "momentum":
-        return 0.45 * df.rank_ret_5 + 0.35 * df.rank_ret_20 + 0.20 * df.rank_close_location
+        return 0.45 * df["ret_20"].rank(pct=True) + 0.35 * df["ret_5"].rank(pct=True) + 0.20 * df["sma50_gap"].rank(pct=True)
     if family == "mean_reversion":
-        return 0.55 * (1 - df.rank_sma20_gap) + 0.25 * (1 - df.rank_ret_5) + 0.20 * df.rank_close_location
+        return 0.55 * (-df["ret_5"]).rank(pct=True) + 0.45 * (-df["sma20_gap"]).rank(pct=True)
     if family == "closing_strength":
-        return 0.65 * df.rank_close_location + 0.35 * df.rank_ret_1
+        return 0.60 * df["close_location"] + 0.40 * df["body_pct"].rank(pct=True)
     if family == "volume":
-        return 0.45 * df.rank_volume_z + 0.35 * df.rank_ret_5 + 0.20 * df.rank_close_location
+        return 0.60 * df["volume_z"].rank(pct=True) + 0.40 * df["ret_5"].rank(pct=True)
     if family == "gap":
-        return 0.55 * df.rank_ret_1 + 0.25 * df.rank_close_location + 0.20 * (1 - df.rank_gap.clip(0, 1))
+        return 0.50 * (-df["gap"]).rank(pct=True) + 0.50 * df["ret_5"].rank(pct=True)
     if family == "regime":
-        base = 0.55 * df.rank_ret_20 + 0.45 * df.rank_close_location
-        good = (df["mkt_ret_5"] > 0).astype(float) if "mkt_ret_5" in df else 0.0
-        return base * (0.5 + good)
+        trend = (df["sma20_gap"] > 0).astype(float)
+        return 0.60 * trend + 0.40 * df["market_ret_5"].rank(pct=True)
     if family == "sector_relative":
-        return 0.65 * df.rank_ret_20 + 0.35 * df.rank_ret_5
-    raise ValueError(f"Unknown strategy family: {family}")
+        return 0.60 * df["ret_20"].rank(pct=True) + 0.40 * df["ret_5"].rank(pct=True)
+    raise ValueError(f"Unknown rule family: {family}")
 
 
-def select_top(scores: pd.DataFrame, top_n: int = 10, min_score: float = 0.60) -> pd.DataFrame:
-    required = ["score", "btst_return", "next_open", "next_close"]
-    x = scores.dropna(subset=required).copy()
-    x = x[x.score >= min_score]
-    x["rank"] = x.groupby("date").score.rank(method="first", ascending=False)
-    return x[x["rank"] <= top_n]
+def top_n_signals(df: pd.DataFrame, score: pd.Series, top_n: int, min_score: float) -> pd.DataFrame:
+    x = df.copy()
+    x["score_raw"] = score
+    x["score_rank"] = x.groupby("date")["score_raw"].rank(pct=True, method="first")
+    x["signal"] = (x["score_rank"] >= (1.0 - top_n / x.groupby("date")["symbol"].transform("count"))) & (x["score_raw"] >= min_score)
+    return x
 
 
-def prepare_entries(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    g = df.groupby("symbol", group_keys=False)
-    for c in ["open", "high", "low", "close"]:
-        df[f"next_{c}"] = g[c].shift(-1)
-    return df
+def _metric_series(returns: pd.Series) -> Tuple[float, float, float, float, float]:
+    r = returns.dropna()
+    if r.empty:
+        return 0.0, 0.0, 0.0, 0.0, 0.0
+    total = float((1.0 + r).prod() - 1.0)
+    ann = float((1.0 + total) ** (252 / max(len(r), 1)) - 1.0)
+    sharpe = float(np.sqrt(252) * r.mean() / r.std()) if r.std() > 0 else 0.0
+    equity = (1.0 + r).cumprod()
+    mdd = float((equity / equity.cummax() - 1.0).min())
+    turnover = float(r.abs().sum())
+    return total, ann, sharpe, mdd, turnover
 
 
-def simulate_trades(trades: pd.DataFrame, cfg: dict) -> Tuple[pd.DataFrame, float]:
+def backtest_signals(df: pd.DataFrame, signal_col: str, costs: dict, initial_capital: float = 1_000_000.0) -> BacktestResult:
+    x = df.copy().sort_values(["date", "symbol"])
+    x["entry"] = x["open"]
+    x["exit"] = x.groupby("symbol")["close"].shift(-1)
+    x["gross_ret"] = x["exit"] / x["entry"] - 1.0
+    cost = 2.0 * (float(costs.get("slippage_bps_per_side", 0)) + float(costs.get("transaction_cost_bps_per_side", 0))) / 10_000.0
+    x["net_ret"] = x["gross_ret"] - cost
+    trades = x[x[signal_col].fillna(False) & x["net_ret"].notna()].copy()
     if trades.empty:
-        return trades.copy(), 0.0
-    sl_bps = float(cfg["costs"]["slippage_bps_per_side"]) / 10000
-    tc_bps = float(cfg["costs"]["transaction_cost_bps_per_side"]) / 10000
-    stop_mode = str(cfg["execution"].get("stop_mode", "ATR")).upper()
-    stop_pct = float(cfg["execution"].get("stop_pct", 2.0)) / 100
-    target_pct = float(cfg["execution"].get("target_pct", 5.0)) / 100
-    stop_mult = float(cfg["execution"].get("stop_atr_mult", 1.5))
-    target_mult = float(cfg["execution"].get("target_atr_mult", 2.0))
-    max_gross = float(cfg["portfolio"].get("max_gross_exposure", 0.95))
-    rows = []
-    for _, r in trades.iterrows():
-        entry = float(r.next_open) * (1 + sl_bps)
-        stop = entry * (1 - stop_pct)
-        target = entry * (1 + target_pct)
-        if stop_mode == "ATR" and pd.notna(r.get("atr_pct")):
-            a = max(float(r.atr_pct), 0.005)
-            stop = entry * (1 - stop_mult * a)
-            target = entry * (1 + target_mult * a)
-        lo, hi = float(r.next_low), float(r.next_high)
-        exit_px, reason = float(r.next_close), "close"
-        if lo <= stop:
-            exit_px, reason = stop, "stop"
-        elif hi >= target:
-            exit_px, reason = target, "target"
-        exit_px *= (1 - sl_bps)
-        net_ret = (exit_px / entry - 1) - 2 * tc_bps
-        rows.append({"signal_date": r.date, "symbol": r.symbol, "entry": entry, "exit": exit_px, "return": net_ret, "reason": reason, "score": r.score})
-    out = pd.DataFrame(rows)
-    counts = out.groupby("signal_date").symbol.transform("count")
-    out["weight"] = max_gross / counts.clip(lower=1)
-    out["weighted_return"] = out["return"] * out["weight"]
-    return out, float(out.weighted_return.sum())
-
-
-def metrics(trades: pd.DataFrame, strategy: str, initial_capital: float, score: float = 0.0) -> BacktestResult:
-    if trades.empty:
-        return BacktestResult(strategy, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, score)
-    r = trades["return"].astype(float)
-    daily = trades.groupby("signal_date").weighted_return.sum().sort_index()
-    wins, losses = r[r > 0], r[r <= 0]
-    pf = float(wins.sum() / abs(losses.sum())) if len(losses) else float("inf")
-    eq = (1 + daily).cumprod()
-    dd = eq / eq.cummax() - 1
-    sd = daily.std()
-    sharpe = float(daily.mean() / sd * math.sqrt(252)) if sd > 0 else 0.0
-    total = float(eq.iloc[-1] - 1)
-    days = max((pd.to_datetime(daily.index).max() - pd.to_datetime(daily.index).min()).days, 1)
-    years = max(days / 365.25, 1 / 365.25)
-    ann = float((1 + total) ** (1 / years) - 1) if 1 + total > 0 else -1.0
-    turnover = float((trades.weight * 2).sum())
-    stability = float((daily.rolling(63).mean().dropna() > 0).mean()) if len(daily) >= 63 else float(daily.mean() > 0)
-    return BacktestResult(strategy, len(r), float((r > 0).mean()), pf, float(r.mean()), total, ann, sharpe, float(dd.min()), turnover, stability, score)
+        return BacktestResult("unknown", 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+    daily = trades.groupby("date")["net_ret"].mean()
+    total, ann, sharpe, mdd, turnover = _metric_series(daily)
+    wins = trades.loc[trades["net_ret"] > 0, "net_ret"]
+    losses = trades.loc[trades["net_ret"] < 0, "net_ret"]
+    pf = float(wins.sum() / abs(losses.sum())) if not losses.empty and losses.sum() != 0 else (float("inf") if not wins.empty else 0.0)
+    exp = float(trades["net_ret"].mean())
+    return BacktestResult("unknown", len(trades), float((trades["net_ret"] > 0).mean()), pf, exp, total, ann, sharpe, mdd, turnover, 0.0, 0.0)
