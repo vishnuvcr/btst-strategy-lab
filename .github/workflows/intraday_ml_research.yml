@@ -36,6 +36,9 @@ jobs:
           echo "Intraday CSV files: $n"
           test "$n" -gt 0
 
+      - name: Validate intraday timestamps and session completeness
+        run: python scripts/validate_intraday_data.py
+
       - name: Run walk-forward intraday ML tournament
         run: python src/run_intraday_ml.py --config config/intraday_ml.yaml
 
@@ -69,4 +72,5 @@ jobs:
             docs/intraday_ml_leaderboard.csv
             docs/intraday_ml_oos_trades.csv
             docs/intraday_ml_monthly_returns.csv
+            docs/intraday_data_quality.json
           retention-days: 30
