@@ -6,6 +6,7 @@ on:
     branches:
       - nse-swing-research
 
+# Trigger the corrected end-to-end swing + robustness pipeline.
 concurrency:
   group: nse-swing-research-${{ github.ref }}
   cancel-in-progress: true
