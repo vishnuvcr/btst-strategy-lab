@@ -2,6 +2,7 @@ name: Unsupervised Pattern Research
 
 on:
   workflow_dispatch:
+  pull_request:
   push:
     branches: [unsupervised-pattern-discovery-v9]
     paths-ignore:
@@ -42,6 +43,7 @@ jobs:
           test -s docs/unsupervised_pattern_metrics.csv
           cat docs/unsupervised_pattern_metrics.csv
       - name: Publish compact results
+        if: github.event_name != 'pull_request'
         run: |
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
