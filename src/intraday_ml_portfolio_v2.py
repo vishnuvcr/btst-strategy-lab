@@ -36,14 +36,16 @@ def replay_portfolio(trades: pd.DataFrame, cfg: dict) -> pd.DataFrame:
         slots = max(0, max_pos - active)
         if slots == 0:
             continue
-        for r in group.itertuples():
-            sym = str(r.symbol)
+        for r in group.itertuples(index=False, name=None):
+            row = dict(zip(t.columns, r))
+            sym = str(row["symbol"])
             old = open_symbols.get(sym)
             if old is not None and old >= ts.normalize():
                 continue
-            selected.append(r)
-            open_until.append(pd.Timestamp(r.exit_date).normalize())
-            open_symbols[sym] = pd.Timestamp(r.exit_date).normalize()
+            selected.append(row)
+            exit_date = pd.Timestamp(row["exit_date"]).normalize()
+            open_until.append(exit_date)
+            open_symbols[sym] = exit_date
             slots -= 1
             if slots <= 0:
                 break
