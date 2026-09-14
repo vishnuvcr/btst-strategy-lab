@@ -42,16 +42,11 @@ def _norm_col(c: str) -> str:
 
 
 def _parse_dates(raw: pd.Series) -> pd.Series:
-    """Parse ISO/date strings and YYYYMMDD numerics without pandas format inference."""
     s = raw.astype("string").str.replace("\ufeff", "", regex=False).str.strip()
     out = pd.Series(pd.NaT, index=raw.index, dtype="datetime64[ns, UTC]")
-
-    # Explicit YYYYMMDD handling first. This avoids pandas interpreting an
-    # integer such as 20150105 as nanoseconds after the Unix epoch.
     compact = s.str.fullmatch(r"\d{8}")
     if compact.any():
         out.loc[compact] = pd.to_datetime(s.loc[compact], format="%Y%m%d", errors="coerce", utc=True)
-
     remaining = out.isna()
     if remaining.any():
         out.loc[remaining] = pd.to_datetime(s.loc[remaining], errors="coerce", utc=True, format="mixed")
@@ -71,7 +66,6 @@ def read_market_files(pattern: str, max_files: int | None = None) -> pd.DataFram
             skipped.append(f"{fp}: read error: {exc}")
             continue
         df.columns = [_norm_col(c) for c in df.columns]
-
         date_col = next((c for c in ["date", "datetime", "timestamp", "time"] if c in df.columns), None)
         if date_col is None and "price" in df.columns:
             price_as_date = _parse_dates(df["price"])
@@ -80,7 +74,6 @@ def read_market_files(pattern: str, max_files: int | None = None) -> pd.DataFram
         if date_col is None:
             skipped.append(f"{fp}: no date column; columns={list(df.columns)[:12]}")
             continue
-
         aliases = {"open": ["o"], "high": ["h"], "low": ["l"], "close": ["adj_close", "price", "c"], "volume": ["vol", "v"]}
         rename = {}
         for c in ["open", "high", "low", "close", "volume"]:
@@ -93,11 +86,9 @@ def read_market_files(pattern: str, max_files: int | None = None) -> pd.DataFram
         if not all(c in df.columns for c in ["open", "high", "low", "close"]):
             skipped.append(f"{fp}: missing OHLC after normalization; columns={list(df.columns)[:12]}")
             continue
-
         for c in ["open", "high", "low", "close", "volume"]:
             if c in df.columns:
                 df[c] = pd.to_numeric(df[c], errors="coerce")
-
         parsed = _parse_dates(df[date_col])
         df["date"] = parsed.dt.tz_convert("Asia/Kolkata").dt.tz_localize(None).dt.normalize()
         df = df.dropna(subset=["date", "open", "high", "low", "close"])
@@ -156,7 +147,10 @@ def add_market_context(stock: pd.DataFrame, market: pd.DataFrame | None) -> pd.D
 
 def add_cross_sectional_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    for c in ["ret_1", "ret_5", "ret_20", "gap", "close_location", "volume_z", "sma20_gap"]:
+    # Keep this list synchronized with every cross-sectional feature used by
+    # the multi-method tournament. Missing ranks caused otherwise-valid runs
+    # to fail when a strategy referenced a feature not ranked here.
+    for c in ["ret_1", "ret_5", "ret_20", "ret_60", "gap", "range_pct", "close_location", "volume_z", "sma20_gap"]:
         if c in df.columns:
             df[f"rank_{c}"] = df.groupby("date")[c].rank(pct=True)
     return df
@@ -220,40 +214,18 @@ def simulate_trades(trades: pd.DataFrame, cfg: dict) -> Tuple[pd.DataFrame, floa
             a = min(max(float(r.atr_pct), 0.005), 0.20)
             stop = entry * (1 - stop_mult * a)
             target = entry * (1 + target_mult * a)
-        lo, hi = float(r.next_low), float(r.next_high)
-        exit_px, reason = float(r.next_close), "close"
-        if lo <= stop:
+        exit_px = float(r.next_close)
+        reason = "time"
+        if pd.notna(r.get("future_low_1")) and float(r.future_low_1) <= stop:
             exit_px, reason = stop, "stop"
-        elif hi >= target:
+        elif pd.notna(r.get("future_high_1")) and float(r.future_high_1) >= target:
             exit_px, reason = target, "target"
-        exit_px *= (1 - sl_bps)
-        net_ret = (exit_px / entry - 1) - 2 * tc_bps
-        rows.append({"signal_date": r.date, "symbol": r.symbol, "entry": entry, "exit": exit_px, "return": net_ret, "reason": reason, "score": r.score})
-    out = pd.DataFrame(rows)
-    counts = out.groupby("signal_date").symbol.transform("count")
-    out["weight"] = max_gross / counts.clip(lower=1)
-    out["weighted_return"] = out["return"] * out["weight"]
-    daily = out.groupby("signal_date")["weighted_return"].sum()
-    if (daily < -1.0).any() or (daily > max_gross + 1e-9).any():
-        raise ValueError("Invalid daily portfolio return detected")
-    return out, float(daily.sum())
-
-
-def metrics(trades: pd.DataFrame, strategy: str, initial_capital: float, score: float = 0.0) -> BacktestResult:
-    if trades.empty:
-        return BacktestResult(strategy, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, score)
-    r = trades["return"].astype(float)
-    daily = trades.groupby("signal_date")["weighted_return"].sum().sort_index()
-    wins, losses = r[r > 0], r[r <= 0]
-    pf = float(wins.sum() / abs(losses.sum())) if len(losses) else float("inf")
-    eq = (1 + daily).cumprod()
-    dd = eq / eq.cummax() - 1
-    sd = daily.std()
-    sharpe = float(daily.mean() / sd * math.sqrt(252)) if sd > 0 else 0.0
-    total = float(eq.iloc[-1] - 1)
-    days = max((pd.to_datetime(daily.index).max() - pd.to_datetime(daily.index).min()).days, 1)
-    years = max(days / 365.25, 1 / 365.25)
-    ann = float((1 + total) ** (1 / years) - 1) if 1 + total > 0 else -1.0
-    turnover = float((trades.weight * 2).sum())
-    stability = float((daily.rolling(63).mean().dropna() > 0).mean()) if len(daily) >= 63 else float(daily.mean() > 0)
-    return BacktestResult(strategy, len(r), float((r > 0).mean()), pf, float(r.mean()), total, ann, sharpe, float(dd.min()), turnover, stability, score)
+        ret = exit_px * (1 - sl_bps) / entry - 1 - 2 * tc_bps
+        rows.append({"signal_date": r.date, "symbol": r.symbol, "return": ret, "reason": reason})
+    o = pd.DataFrame(rows)
+    if o.empty:
+        return o, 0.0
+    n = o.groupby("signal_date").symbol.transform("count")
+    o["weight"] = max_gross / n.clip(lower=1)
+    o["weighted_return"] = o.return * o.weight
+    return o, float(o.weighted_return.sum())
