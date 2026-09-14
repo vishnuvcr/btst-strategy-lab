@@ -37,7 +37,7 @@ jobs:
           test "$n" -gt 0
 
       - name: Run walk-forward intraday ML tournament
-        run: python src/intraday_ml_tournament.py --config config/intraday_ml.yaml
+        run: python src/run_intraday_ml.py --config config/intraday_ml.yaml
 
       - name: Validate artifacts
         run: |
