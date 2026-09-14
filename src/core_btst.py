@@ -42,16 +42,11 @@ def _norm_col(c: str) -> str:
 
 
 def _parse_dates(raw: pd.Series) -> pd.Series:
-    """Parse ISO/date strings and YYYYMMDD numerics without pandas format inference."""
     s = raw.astype("string").str.replace("\ufeff", "", regex=False).str.strip()
     out = pd.Series(pd.NaT, index=raw.index, dtype="datetime64[ns, UTC]")
-
-    # Explicit YYYYMMDD handling first. This avoids pandas interpreting an
-    # integer such as 20150105 as nanoseconds after the Unix epoch.
     compact = s.str.fullmatch(r"\d{8}")
     if compact.any():
         out.loc[compact] = pd.to_datetime(s.loc[compact], format="%Y%m%d", errors="coerce", utc=True)
-
     remaining = out.isna()
     if remaining.any():
         out.loc[remaining] = pd.to_datetime(s.loc[remaining], errors="coerce", utc=True, format="mixed")
@@ -156,7 +151,8 @@ def add_market_context(stock: pd.DataFrame, market: pd.DataFrame | None) -> pd.D
 
 def add_cross_sectional_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
-    for c in ["ret_1", "ret_5", "ret_20", "gap", "close_location", "volume_z", "sma20_gap"]:
+    # Multi-method tournament ranks: include every feature referenced by its scoring rules.
+    for c in ["ret_1", "ret_5", "ret_20", "ret_60", "gap", "range_pct", "close_location", "volume_z", "sma20_gap"]:
         if c in df.columns:
             df[f"rank_{c}"] = df.groupby("date")[c].rank(pct=True)
     return df
