@@ -6,7 +6,7 @@ data:
   max_symbols: 1000
   min_history_days: 60
   min_price: 20
-  min_bars_per_day: 30
+  min_bars_per_day: 70
 research:
   train_days: 504
   validation_days: 63
