@@ -34,7 +34,7 @@ jobs:
               raise SystemExit('Expected volatility-breakout scoring line not found')
           p.write_text(s.replace(old, new), encoding='utf-8')
           PY
-      # Trigger a full research run after the volatility-breakout fix.
+      # Full research trigger: this push starts the tournament on the branch.
       - name: Run multi-method tournament
         run: python src/multi_method_tournament.py --config config/multi_method.yaml
       - name: Validate outputs
