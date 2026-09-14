@@ -11,6 +11,13 @@ research:
   test_days: 63
   step_days: 63
   n_clusters: [4, 6, 8, 10]
+  models: [kmeans, gmm]
   sample_per_fold: 100000
   random_state: 42
   min_cluster_obs: 100
+costs:
+  slippage_bps_per_side: 2.0
+  transaction_cost_bps_per_side: 3.0
+portfolio:
+  max_positions: 10
+  max_gross_exposure: 0.95
