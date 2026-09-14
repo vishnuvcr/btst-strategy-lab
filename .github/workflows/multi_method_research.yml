@@ -22,6 +22,8 @@ jobs:
         run: python scripts/download_data.py
       - name: Download NSE-wide daily universe
         run: python scripts/download_multi_method_data.py
+      - name: Filter NSE universe
+        run: python scripts/filter_multi_method_universe.py
       - name: Fix volatility breakout feature mapping
         run: |
           python - <<'PY'
@@ -34,7 +36,6 @@ jobs:
               raise SystemExit('Expected volatility-breakout scoring line not found')
           p.write_text(s.replace(old, new), encoding='utf-8')
           PY
-      # Full research trigger: this push starts the tournament on the branch.
       - name: Run multi-method tournament
         run: python src/multi_method_tournament.py --config config/multi_method.yaml
       - name: Validate outputs
