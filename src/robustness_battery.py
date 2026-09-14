@@ -9,7 +9,7 @@ import pandas as pd
 import yaml
 
 from swing_tournament import load, features, add_forward_fields, simulate, stat
-from selective_optimizer import fold_ranges, score_candidate
+from selective_optimizer import component_frame, fold_ranges, score_candidate
 
 COMPONENTS = ("mr5", "mr20", "sma20", "loc", "volume", "relative")
 DEFAULTS = {
@@ -104,7 +104,8 @@ def main():
     docs = Path(args.summary_dir)
 
     raw = load(cfg)
-    base = features(raw).sort_values(["symbol", "date"]).reset_index(drop=True)
+    # Robustness must use the same component construction as the nested optimizer.
+    base = component_frame(features(raw)).sort_values(["symbol", "date"]).reset_index(drop=True)
     dates = sorted(base.date.unique())
     scenarios = []
 
@@ -161,7 +162,7 @@ def main():
     pd.DataFrame(summary).to_csv(docs / "swing_robustness_summary.csv", index=False)
 
     manifest = {
-        "engine": "nse_daily_swing_robustness_v2",
+        "engine": "nse_daily_swing_robustness_v3",
         "primary_horizons": [10, 20],
         "per_side_cost_bps": [13, 20, 30, 40],
         "stop_target_atr": [[1.0, 2.0], [1.5, 3.0], [2.0, 4.0]],
