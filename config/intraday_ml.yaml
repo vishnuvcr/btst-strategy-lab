@@ -1,0 +1,38 @@
+data:
+  intraday_glob: "data/intraday/**/*.csv"
+  market_glob: "data/market/**/*NIFTY*day*.csv"
+  start_date: "2015-01-01"
+  end_date: "2026-09-14"
+  max_symbols: 1000
+  min_history_days: 60
+  min_price: 20
+  min_bars_per_day: 70
+research:
+  train_days: 504
+  validation_days: 63
+  test_days: 63
+  step_days: 63
+  embargo_days: 5
+  random_state: 42
+  horizons_bars: [3, 6, 12, 24]
+  opening_range_bars: [3, 6, 12]
+costs:
+  slippage_bps_per_side: 2.0
+  transaction_cost_bps_per_side: 3.0
+portfolio:
+  initial_capital: 1000000
+  max_positions: 10
+  max_gross_exposure: 0.95
+execution:
+  stop_pct: 0.02
+  target_pct: 0.04
+  max_holding_bars: 24
+methods:
+  - opening_range_breakout
+  - opening_range_reversal
+  - vwap_reversion
+  - intraday_momentum
+  - volatility_expansion
+  - gap_ml
+  - ml_direction
+  - ml_ranker

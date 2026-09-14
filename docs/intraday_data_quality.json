@@ -1,0 +1,13 @@
+{
+  "files_seen": 103,
+  "usable_files": 103,
+  "symbols": 103,
+  "rows": 19422687,
+  "session_days": 260273,
+  "duplicate_timestamps": 0,
+  "out_of_session_rows": 12669,
+  "sessions_below_70_bars": 1889,
+  "session_definition": "09:15-15:30 Asia/Kolkata",
+  "minimum_session_bars_for_research": 70,
+  "survivorship_warning": "The configured intraday source is NIFTY 100 historical data and may not be point-in-time constituent membership."
+}
