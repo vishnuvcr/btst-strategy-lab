@@ -23,7 +23,7 @@ jobs:
       - name: Download NSE-wide daily universe
         run: python scripts/download_multi_method_data.py
       - name: Run multi-method tournament
-        run: python src/multi_method_research.py --config config/multi_method.yaml
+        run: python src/multi_method_tournament.py --config config/multi_method.yaml
       - name: Validate outputs
         run: |
           test -s docs/multi_method_leaderboard.csv
