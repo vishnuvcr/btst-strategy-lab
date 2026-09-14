@@ -47,7 +47,6 @@ def features(x):
     x['realized_vol']=g['ret_1'].transform(lambda s:s.rolling(12,min_periods=6).std())
     x['accel']=g['ret_3'].transform(lambda s:s-s.shift(3))
     x['session_frac']=gs.cumcount()/gs.datetime.transform('size')
-    # Keep forward returns inside the same trading session; no overnight leakage.
     for h in [3,6,12,24]: x[f'fwd_{h}']=gs.close.shift(-h)/x.close-1
     x['fwd_6_label']=(x.fwd_6>0).astype(float)
     return x.replace([np.inf,-np.inf],np.nan)
@@ -58,7 +57,10 @@ def simulate(day, h, cost, max_pos, gross):
     if picks.empty:return None
     picks['strength']=picks.confidence
     picks=picks.sort_values('strength',ascending=False).head(max_pos)
-    w=gross/len(picks); picks['ret']=picks.action*picks[f'fwd_{h}']-cost; picks['weighted']=w*picks.ret
+    w=gross/len(picks)
+    picks['weight']=w
+    picks['ret']=picks.action*picks[f'fwd_{h}']-cost
+    picks['weighted']=w*picks.ret
     return picks
 
 
