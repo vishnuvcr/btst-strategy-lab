@@ -1,0 +1,56 @@
+name: Multi-Method Trading Research
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [multi-method-research]
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Download market context
+        run: python scripts/download_data.py
+      - name: Download NSE-wide daily universe
+        run: python scripts/download_multi_method_data.py
+      - name: Filter NSE universe
+        run: python scripts/filter_multi_method_universe.py
+      - name: Fix volatility breakout feature mapping
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/multi_method_tournament.py')
+          s = p.read_text(encoding='utf-8')
+          old = 'if f == "vol_breakout": return .45 * x["rank_volume_z"] + .35 * x["rank_range_pct"] + .20 * x["rank_close_location"]'
+          new = 'if f == "vol_breakout": return .45 * x["rank_volume_z"] + .35 * x.groupby("date")["range_pct"].rank(pct=True) + .20 * x["rank_close_location"]'
+          if old not in s:
+              raise SystemExit('Expected volatility-breakout scoring line not found')
+          p.write_text(s.replace(old, new), encoding='utf-8')
+          PY
+      - name: Run multi-method tournament
+        run: python src/multi_method_tournament.py --config config/multi_method.yaml
+      - name: Validate outputs
+        run: |
+          test -s docs/multi_method_leaderboard.csv
+          test -s docs/multi_method_oos_trades.csv
+          python - <<'PY'
+          import pandas as pd
+          x = pd.read_csv('docs/multi_method_leaderboard.csv')
+          assert len(x) >= 10
+          assert {'strategy','sharpe','profit_factor','max_drawdown','total_return'}.issubset(x.columns)
+          print(x.to_string(index=False))
+          PY
+      - name: Upload research artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: multi-method-results
+          path: docs/multi_method_*.csv

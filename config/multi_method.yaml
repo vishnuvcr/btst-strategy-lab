@@ -1,0 +1,52 @@
+data:
+  timezone: Asia/Kolkata
+  daily_glob: data/nse_all_daily/**/*.csv
+  market_glob: data/market/**/NIFTY 50_day.csv
+  start_date: '2015-01-01'
+  end_date: '2026-09-14'
+  max_symbols: 1000
+  min_history_days: 252
+  min_price: 20
+  min_turnover_inr: 10000000
+  yahoo_batch_size: 50
+
+research:
+  train_years: 4
+  validation_months: 12
+  test_months: 12
+  step_months: 12
+  embargo_days: 5
+  min_train_observations: 5000
+  min_oos_trades: 100
+  random_state: 42
+  horizons: [1, 3, 5, 10, 20, 60]
+
+costs:
+  slippage_bps_per_side: 5.0
+  transaction_cost_bps_per_side: 8.0
+  short_borrow_bps_per_day: 2.0
+
+portfolio:
+  initial_capital: 1000000
+  max_positions: 10
+  max_gross_exposure: 0.95
+
+execution:
+  stop_mode: ATR
+  stop_atr_mult: 1.5
+  target_atr_mult: 2.0
+  max_holding_days: 60
+
+methods:
+  - btst_momentum
+  - gap_fade
+  - opening_reversal
+  - short_term_momentum
+  - short_mean_reversion
+  - breakout
+  - volatility_breakout
+  - trend_following
+  - long_trend
+  - cross_sectional_relative_strength
+  - long_short_cross_sectional
+  - ml_ranker
