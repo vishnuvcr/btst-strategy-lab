@@ -2,7 +2,7 @@ name: Intraday Meta v3 Research
 on:
   workflow_dispatch:
   push:
-    branches: [intraday-unsupervised-meta]
+    branches: [intraday-unsupervised-meta, v3-accounting-audit]
 permissions:
   contents: read
 jobs:
@@ -35,10 +35,16 @@ jobs:
           cat docs/intraday_meta_v3_metrics.csv
           python - <<'PY'
           import pandas as pd
-          p=pd.read_csv('docs/intraday_meta_v3_metrics.csv')
-          assert not p.empty
-          assert (p['months_ge_30pct'] >= 0).all()
-          print('Event-driven V3 validation passed.')
+          m=pd.read_csv('docs/intraday_meta_v3_metrics.csv')
+          f=pd.read_csv('docs/intraday_meta_v3_folds.csv')
+          assert not m.empty
+          assert not f.empty
+          assert (m['months_ge_30pct'] >= 0).all()
+          for h in [6,12,24]:
+              c=f'equity_end_h{h}'
+              assert c in f.columns
+              assert f[c].notna().all()
+          print('Event-driven V3 accounting-audit validation passed.')
           PY
       - name: Upload artifact
         uses: actions/upload-artifact@v4
