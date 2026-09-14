@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 import yaml
 from sklearn.cluster import KMeans
-from sklearn.ensemble import IsolationForest
 from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import RobustScaler
 
@@ -103,7 +102,6 @@ def make_daily(x):
     daily["ret_1"] = dg.close.pct_change(1)
     daily["ret_5"] = dg.close.pct_change(5)
     daily["ret_20"] = dg.close.pct_change(20)
-    # These are explicitly next-session quantities: no same-session execution is assumed.
     daily["next_open_return"] = dg.open.shift(-1) / daily.close - 1
     daily["next_close_return"] = dg.close.shift(-1) / daily.close - 1
     return daily.replace([np.inf, -np.inf], np.nan)
@@ -127,6 +125,13 @@ def assign(model, scaler, frame):
     z = frame.dropna(subset=FEATURES).copy()
     X = scaler.transform(z[FEATURES])
     z["cluster"] = model.predict(X)
+    # Confidence is derived only from the fitted unsupervised model, never from future returns.
+    if isinstance(model, KMeans):
+        dist = model.transform(X)
+        z["cluster_confidence"] = -dist[np.arange(len(z)), z["cluster"].to_numpy()]
+    else:
+        probs = model.predict_proba(X)
+        z["cluster_confidence"] = probs[np.arange(len(z)), z["cluster"].to_numpy()]
     return z
 
 
@@ -145,7 +150,6 @@ def choose_model(train, val, cfg):
             if eligible.empty:
                 score = -1e9
             else:
-                # Reward both positive long and negative short states, but require economic separation.
                 long_edge = float(eligible["mean"].max())
                 short_edge = float(-eligible["mean"].min())
                 score = max(long_edge, short_edge)
@@ -177,7 +181,6 @@ def run(cfg):
         eligible = vg[vg["count"] >= int(cfg["research"]["min_cluster_obs"])]
         long_cluster = int(eligible["mean"].idxmax()) if not eligible.empty else None
         short_cluster = int(eligible["mean"].idxmin()) if not eligible.empty else None
-        # Require economically meaningful validation edges and use only one long and one short cluster.
         long_edge = float(eligible.loc[long_cluster, "mean"]) if long_cluster is not None else 0.0
         short_edge = float(eligible.loc[short_cluster, "mean"]) if short_cluster is not None else 0.0
         t = assign(model, scaler, test)
@@ -186,59 +189,40 @@ def run(cfg):
         t.loc[t.cluster == short_cluster, "side"] = -1
         t = t[t.side != 0].copy()
         if not t.empty:
-            # Daily equal-weight portfolio: simultaneous observations share the day's gross exposure.
             rows = []
             for d, day in t.groupby("date", sort=True):
-                day = day.sort_values("next_close_return", ascending=False)
-                # Keep strongest long and strongest short states; cap total positions.
-                longs = day[day.side == 1].nlargest(max_positions, "next_close_return")
-                shorts = day[day.side == -1].nsmallest(max_positions, "next_close_return")
+                # IMPORTANT: never rank test observations by realized/future return.
+                # Rank only by model-derived cluster confidence.
+                longs = day[day.side == 1].nlargest(max_positions, "cluster_confidence")
+                shorts = day[day.side == -1].nlargest(max_positions, "cluster_confidence")
                 selected = pd.concat([longs, shorts], ignore_index=True)
                 if len(selected) > max_positions:
-                    selected = selected.head(max_positions)
+                    selected = selected.nlargest(max_positions, "cluster_confidence")
                 if selected.empty:
                     continue
                 w = max_gross / len(selected)
                 selected["weight"] = w
                 selected["net_return"] = selected.side * selected.next_close_return - cost
                 selected["weighted_return"] = selected.weight * selected.net_return
-                rows.append(selected[["date","symbol","cluster","side","next_open_return","next_close_return","weight","net_return","weighted_return"]])
+                rows.append(selected[["date","symbol","cluster","side","next_open_return","next_close_return","cluster_confidence","weight","net_return","weighted_return"]])
             if rows:
-                o = pd.concat(rows, ignore_index=True)
-                all_oos.append(o)
+                all_oos.append(pd.concat(rows, ignore_index=True))
         model_rows.append({"fold":fold,"model_type":best["model_type"],"k":int(best["k"]),"validation_long_edge":long_edge,"validation_short_edge":short_edge,"long_cluster":long_cluster,"short_cluster":short_cluster})
         print(f"fold {fold} complete; model={best['model_type']}; k={best['k']}; OOS positions={sum(len(x) for x in all_oos)}", flush=True)
 
     os.makedirs("docs", exist_ok=True)
     pd.DataFrame(model_rows).to_csv("docs/unsupervised_model_selection.csv", index=False)
-    if all_oos:
-        out = pd.concat(all_oos, ignore_index=True)
-    else:
-        out = pd.DataFrame(columns=["date","symbol","cluster","side","next_open_return","next_close_return","weight","net_return","weighted_return"])
+    out = pd.concat(all_oos, ignore_index=True) if all_oos else pd.DataFrame(columns=["date","symbol","cluster","side","next_open_return","next_close_return","cluster_confidence","weight","net_return","weighted_return"])
     out.to_csv("docs/unsupervised_pattern_oos.csv", index=False)
-
     if out.empty:
-        metrics = {"trades":0,"total_return":0.0,"cagr":0.0,"win_rate":0.0,"max_drawdown":0.0,"best_month":0.0,"worst_month":0.0,"positive_month_fraction":0.0}
+        metrics = {"trades":0,"active_days":0,"total_return":0.0,"cagr":0.0,"win_rate":0.0,"mean_trade_return":0.0,"sharpe_daily":0.0,"max_drawdown":0.0,"best_month":0.0,"worst_month":0.0,"positive_month_fraction":0.0,"months_ge_30pct":0}
     else:
         daily_ret = out.groupby("date").weighted_return.sum().sort_index()
         equity = (1 + daily_ret).cumprod()
         dd = equity / equity.cummax() - 1
         monthly = daily_ret.groupby(daily_ret.index.to_period("M")).apply(lambda s: float((1+s).prod()-1))
         years = max((daily_ret.index[-1] - daily_ret.index[0]).days / 365.25, 1/365.25)
-        metrics = {
-            "trades": int(len(out)),
-            "active_days": int(len(daily_ret)),
-            "total_return": float(equity.iloc[-1]-1),
-            "cagr": float(equity.iloc[-1] ** (1/years) - 1),
-            "win_rate": float((out.net_return > 0).mean()),
-            "mean_trade_return": float(out.net_return.mean()),
-            "sharpe_daily": float(np.sqrt(252) * daily_ret.mean() / daily_ret.std()) if daily_ret.std() > 0 else 0.0,
-            "max_drawdown": float(dd.min()),
-            "best_month": float(monthly.max()),
-            "worst_month": float(monthly.min()),
-            "positive_month_fraction": float((monthly > 0).mean()),
-            "months_ge_30pct": int((monthly >= 0.30).sum()),
-        }
+        metrics = {"trades":int(len(out),),"active_days":int(len(daily_ret)),"total_return":float(equity.iloc[-1]-1),"cagr":float(equity.iloc[-1] ** (1/years) - 1),"win_rate":float((out.net_return > 0).mean()),"mean_trade_return":float(out.net_return.mean()),"sharpe_daily":float(np.sqrt(252) * daily_ret.mean() / daily_ret.std()) if daily_ret.std() > 0 else 0.0,"max_drawdown":float(dd.min()),"best_month":float(monthly.max()),"worst_month":float(monthly.min()),"positive_month_fraction":float((monthly > 0).mean()),"months_ge_30pct":int((monthly >= 0.30).sum())}
     pd.DataFrame([metrics]).to_csv("docs/unsupervised_pattern_metrics.csv", index=False)
     print(pd.DataFrame([metrics]).to_string(index=False))
 
