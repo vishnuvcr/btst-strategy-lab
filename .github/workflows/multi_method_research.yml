@@ -1,0 +1,42 @@
+name: Multi-Method Trading Research
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [multi-method-research]
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Download market context
+        run: python scripts/download_data.py
+      - name: Download NSE-wide daily universe
+        run: python scripts/download_multi_method_data.py
+      - name: Run multi-method tournament
+        run: python src/multi_method_research.py --config config/multi_method.yaml
+      - name: Validate outputs
+        run: |
+          test -s docs/multi_method_leaderboard.csv
+          test -s docs/multi_method_oos_trades.csv
+          python - <<'PY'
+          import pandas as pd
+          x = pd.read_csv('docs/multi_method_leaderboard.csv')
+          assert len(x) >= 10
+          assert {'strategy','sharpe','profit_factor','max_drawdown','total_return'}.issubset(x.columns)
+          print(x.to_string(index=False))
+          PY
+      - name: Upload research artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: multi-method-results
+          path: docs/multi_method_*.csv
