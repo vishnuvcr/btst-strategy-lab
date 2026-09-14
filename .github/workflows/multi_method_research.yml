@@ -22,6 +22,18 @@ jobs:
         run: python scripts/download_data.py
       - name: Download NSE-wide daily universe
         run: python scripts/download_multi_method_data.py
+      - name: Fix volatility breakout feature mapping
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/multi_method_tournament.py')
+          s = p.read_text(encoding='utf-8')
+          old = 'if f == "vol_breakout": return .45 * x["rank_volume_z"] + .35 * x["rank_range_pct"] + .20 * x["rank_close_location"]'
+          new = 'if f == "vol_breakout": return .45 * x["rank_volume_z"] + .35 * x.groupby("date")["range_pct"].rank(pct=True) + .20 * x["rank_close_location"]'
+          if old not in s:
+              raise SystemExit('Expected volatility-breakout scoring line not found')
+          p.write_text(s.replace(old, new), encoding='utf-8')
+          PY
       - name: Run multi-method tournament
         run: python src/multi_method_tournament.py --config config/multi_method.yaml
       - name: Validate outputs
