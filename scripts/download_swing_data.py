@@ -136,3 +136,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+# Trigger a fresh research run after restoring the missing acquisition script.
