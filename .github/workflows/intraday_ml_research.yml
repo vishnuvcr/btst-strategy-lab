@@ -12,11 +12,10 @@ on:
 permissions:
   contents: write
 
-timeout-minutes: 120
-
 jobs:
   intraday-ml:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - name: Checkout
         uses: actions/checkout@v4
