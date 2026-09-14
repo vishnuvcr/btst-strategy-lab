@@ -44,7 +44,7 @@ def make_features(x):
     return x.replace([np.inf,-np.inf],np.nan)
 
 def signals(x):
-    cols=['datetime','date','symbol']+BASE_FEATURES+['close','high','low','next_open','atr_pct','fwd_6','fwd_12','fwd_24','orb6_hi','orb6_lo','orb12_hi','orb12_lo'];out=[]
+    cols=['datetime','date','symbol','cluster']+BASE_FEATURES+['close','high','low','next_open','atr_pct','fwd_6','fwd_12','fwd_24','orb6_hi','orb6_lo','orb12_hi','orb12_lo'];out=[]
     for name in STRATEGIES:
         z=x[cols].copy();z['strategy']=name;z['strategy_id']=STRATEGIES.index(name)
         if name=='trend':z['action']=np.where(z.ret_6>0,1,np.where(z.ret_6<0,-1,0))
