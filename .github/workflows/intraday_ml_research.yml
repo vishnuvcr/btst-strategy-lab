@@ -3,7 +3,7 @@ name: Intraday ML Research
 on:
   workflow_dispatch:
   push:
-    branches: [multi-method-research]
+    branches: [intraday-fast-research]
     paths-ignore:
       - 'docs/intraday_ml_leaderboard.csv'
       - 'docs/intraday_ml_monthly_returns.csv'
@@ -43,8 +43,8 @@ jobs:
         continue-on-error: true
         run: python scripts/validate_intraday_data.py
 
-      - name: Run walk-forward intraday ML tournament
-        run: python src/run_intraday_ml.py --config config/intraday_ml.yaml
+      - name: Run optimized walk-forward intraday ML tournament
+        run: python src/intraday_ml_fast.py --config config/intraday_ml.yaml
 
       - name: Validate artifacts
         run: |
@@ -54,14 +54,11 @@ jobs:
           python - <<'PY'
           import pandas as pd
           lb = pd.read_csv('docs/intraday_ml_leaderboard.csv')
-          if lb.empty:
-              raise SystemExit('Empty leaderboard')
+          if lb.empty: raise SystemExit('Empty leaderboard')
           required = {'strategy','trades','profit_factor','total_return','sharpe','max_drawdown'}
           missing = required - set(lb.columns)
-          if missing:
-              raise SystemExit(f'Missing leaderboard columns: {missing}')
-          if (lb.trades <= 0).all():
-              raise SystemExit('No strategy has OOS trades')
+          if missing: raise SystemExit(f'Missing leaderboard columns: {missing}')
+          if (lb.trades <= 0).all(): raise SystemExit('No strategy has OOS trades')
           print(lb.to_string(index=False))
           m = pd.read_csv('docs/intraday_ml_monthly_returns.csv')
           print('\nBest monthly return by method:')
