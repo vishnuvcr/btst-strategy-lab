@@ -1,0 +1,43 @@
+name: Intraday Unsupervised Meta Research
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [intraday-unsupervised-meta]
+    paths-ignore:
+      - 'docs/intraday_unsupervised_meta_*.csv'
+
+permissions:
+  contents: write
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Download genuine intraday data
+        run: python scripts/download_data.py
+      - name: Verify dataset
+        run: test "$(find data/intraday -type f -name '*.csv' | wc -l)" -gt 0
+      - name: Run unsupervised intraday meta research
+        run: python src/intraday_unsupervised_meta.py --config config/intraday_unsupervised_meta.yaml
+      - name: Validate outputs
+        run: |
+          test -s docs/intraday_unsupervised_meta_metrics.csv
+          test -s docs/intraday_unsupervised_meta_oos.csv
+          cat docs/intraday_unsupervised_meta_metrics.csv
+      - name: Upload research artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: intraday-unsupervised-meta-results
+          path: docs/intraday_unsupervised_meta_*.csv
+          retention-days: 30
