@@ -43,8 +43,8 @@ jobs:
         continue-on-error: true
         run: python scripts/validate_intraday_data.py
 
-      - name: Run optimized walk-forward intraday ML tournament
-        run: python src/intraday_ml_fast.py --config config/intraday_ml.yaml
+      - name: Run embargoed portfolio-aware intraday tournament
+        run: python src/intraday_ml_portfolio_v2.py --config config/intraday_ml.yaml
 
       - name: Validate artifacts
         run: |
