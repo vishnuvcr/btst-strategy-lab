@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import yaml
 from lightgbm import LGBMRegressor
-from intraday_meta_v3 import load, features, signals, cluster_fit, frame, BASE, STRATS
+from intraday_meta_v3 import load, features, signals, cluster_fit, frame, BASE
 
 
 def event_sim(selected, prices, h, cfg):
@@ -80,15 +80,18 @@ def event_sim(selected, prices, h, cfg):
 
 def metrics(trades):
     rows=[]
+    if trades.empty: return pd.DataFrame()
     for h,g in trades.groupby('horizon'):
         pnl=g.groupby('exit_dt').pnl.sum().sort_index()
-        eq=(1+pnl).cumprod()
-        daily=pnl.copy(); dd=eq/eq.cummax()-1
-        months=daily.groupby(daily.index.to_period('M')).apply(lambda z:(1+z).prod()-1)
+        equity=1.0+pnl.cumsum()
+        daily_ret=pnl / equity.shift(1).fillna(1.0)
+        dd=equity/equity.cummax()-1
+        months=daily_ret.groupby(daily_ret.index.to_period('M')).apply(lambda z:(1+z).prod()-1)
         years=max((pnl.index[-1]-pnl.index[0]).days/365.25,1/365.25)
-        rows.append({'horizon':int(h),'trades':len(g),'total_return':eq.iloc[-1]-1,
-                     'cagr':eq.iloc[-1]**(1/years)-1,
-                     'sharpe':np.sqrt(252)*daily.mean()/daily.std() if daily.std()>0 else 0,
+        final=float(equity.iloc[-1])
+        rows.append({'horizon':int(h),'trades':len(g),'total_return':final-1,
+                     'cagr':final**(1/years)-1,
+                     'sharpe':np.sqrt(252)*daily_ret.mean()/daily_ret.std() if daily_ret.std()>0 else 0,
                      'max_drawdown':dd.min(),'best_month':months.max(),'worst_month':months.min(),
                      'positive_month_fraction':(months>0).mean(),
                      'months_ge_30pct':int((months>=.30).sum())})
