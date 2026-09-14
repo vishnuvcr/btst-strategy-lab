@@ -1,0 +1,16 @@
+data:
+  intraday_glob: "data/intraday/**/*.csv"
+  start_date: "2015-01-01"
+  end_date: "2026-09-14"
+  max_symbols: 1000
+  min_bars_per_day: 70
+  min_price: 20
+research:
+  train_days: 504
+  validation_days: 63
+  test_days: 63
+  step_days: 63
+  n_clusters: [4, 6, 8, 10]
+  sample_per_fold: 100000
+  random_state: 42
+  min_cluster_obs: 100
