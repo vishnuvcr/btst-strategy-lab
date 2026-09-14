@@ -4,6 +4,10 @@ on:
   workflow_dispatch:
   push:
     branches: [multi-method-research]
+    paths-ignore:
+      - 'docs/intraday_ml_leaderboard.csv'
+      - 'docs/intraday_ml_monthly_returns.csv'
+      - 'docs/intraday_data_quality.json'
 
 permissions:
   contents: write
