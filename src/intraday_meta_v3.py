@@ -38,9 +38,16 @@ def features(x,horizons):
     x['range_pct']=(x.high-x.low)/x.open.replace(0,np.nan); x['body_pct']=(x.close-x.open)/x.open.replace(0,np.nan); x['close_location']=(x.close-x.low)/(x.high-x.low).replace(0,np.nan)
     if 'volume' in x:
         vm=g.volume.transform(lambda s:s.rolling(20,min_periods=10).mean()); vs=g.volume.transform(lambda s:s.rolling(20,min_periods=10).std()); x['volume_z']=(x.volume-vm)/vs.replace(0,np.nan)
-        den=(x.volume.fillna(0)*1.0).groupby([x.symbol,x.date]).transform('sum').replace(0,np.nan); vw=(x.close*x.volume.fillna(0)).groupby([x.symbol,x.date]).transform('sum')/den; x['vwap_gap']=x.close/vw-1
+        # Leakage-safe intraday VWAP: only bars up to and including the current bar.
+        pv=(x.close*x.volume.fillna(0)).groupby([x.symbol,x.date]).cumsum()
+        vv=x.volume.fillna(0).groupby([x.symbol,x.date]).cumsum().replace(0,np.nan)
+        vw=pv/vv
+        x['vwap_gap']=x.close/vw-1
     else: x['volume_z']=0.; x['vwap_gap']=0.
-    x['realized_vol']=g.ret_1.transform(lambda s:s.rolling(12,min_periods=6).std()); x['accel']=g.ret_3.transform(lambda s:s-s.shift(3)); x['session_frac']=gd.cumcount()/gd.datetime.transform('size')
+    x['realized_vol']=g.ret_1.transform(lambda s:s.rolling(12,min_periods=6).std()); x['accel']=g.ret_3.transform(lambda s:s-s.shift(3))
+    # Session progress is based only on elapsed clock time, not the future number of bars.
+    x['session_frac']=((x.datetime.dt.hour*60+x.datetime.dt.minute)-555)/375.0
+    x['session_frac']=x.session_frac.clip(0,1)
     x['atr_pct']=g.range_pct.transform(lambda s:s.rolling(20,min_periods=10).mean()); x['next_open']=gd.open.shift(-1)
     for h in horizons: x[f'fwd_{h}']=gd.close.shift(-h)/x.next_open-1
     x['orb6_hi']=gd.high.transform(lambda s:s.shift(1).rolling(6,min_periods=6).max()); x['orb6_lo']=gd.low.transform(lambda s:s.shift(1).rolling(6,min_periods=6).min())
